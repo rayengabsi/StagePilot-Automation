@@ -4,9 +4,109 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, computed_field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
+
+
+class FilterRules(BaseModel):
+    """Configurable hard-filter rule sets designed for future database storage."""
+
+    pfe_keywords: list[str] = Field(
+        default=[
+            "pfe",
+            "stage",
+            "internship",
+            "intern",
+            "stagiaire",
+            "projet de fin d'etudes",
+            "fin d'etudes",
+            "final year project",
+            "graduation project",
+            "memoire",
+            "apprenticeship",
+            "alternance",
+        ]
+    )
+    location_whitelist: list[str] = Field(
+        default=[
+            "tunisia",
+            "tunisie",
+            "france",
+            "remote",
+            "hybrid",
+            "teletravail",
+            "paris",
+            "tunis",
+        ]
+    )
+    location_blacklist: list[str] = Field(
+        default=["usa", "united states", "canada", "uk", "germany"]
+    )
+    seniority_blacklist: list[str] = Field(
+        default=[
+            "senior",
+            "lead",
+            "principal",
+            "staff",
+            "manager",
+            "director",
+            "head of",
+            "vp of",
+            "chief",
+            "expert",
+        ]
+    )
+    cs_field_keywords: list[str] = Field(
+        default=[
+            "computer science",
+            "software",
+            "data",
+            "artificial intelligence",
+            "machine learning",
+            "deep learning",
+            "cloud",
+            "devops",
+            "cybersecurity",
+            "backend",
+            "full-stack",
+            "fullstack",
+            "frontend",
+            "mobile",
+            "web",
+            "api",
+            "engineering",
+            "developer",
+            "programmer",
+            "data scientist",
+            "data engineer",
+            "ml engineer",
+            "ai engineer",
+            "systems",
+            "infrastructure",
+        ]
+    )
+    employment_type_keywords: list[str] = Field(
+        default=["internship", "stage", "pfe", "apprenticeship", "alternance", "graduate"]
+    )
+    employment_type_blacklist: list[str] = Field(
+        default=["full-time", "permanent", "cdi", "contractor", "freelance"]
+    )
+    remote_keywords: dict[str, list[str]] = Field(
+        default={
+            "remote": [
+                "remote",
+                "teletravail",
+                "work from home",
+                "wfh",
+                "home office",
+                "distantiel",
+            ],
+            "hybrid": ["hybrid", "mixte", "semi-presentiel"],
+            "onsite": ["on-site", "onsite", "presentiel", "in office", "in-office"],
+        }
+    )
+    fuzzy_title_threshold: float = Field(default=80.0, ge=0.0, le=100.0)
 
 
 class Settings(BaseSettings):
@@ -35,6 +135,8 @@ class Settings(BaseSettings):
     discovery_http_timeout_seconds: int = Field(default=20, ge=1, le=120)
     discovery_retry_attempts: int = Field(default=3, ge=1, le=10)
     discovery_user_agent: str = "StagePilotAutomation/0.1"
+
+    filter_rules: FilterRules = Field(default_factory=FilterRules)
 
     email_dry_run: bool = True
     telegram_allowed_user_id: int | None = None

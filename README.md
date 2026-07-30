@@ -4,7 +4,9 @@ AI-powered, human-in-the-loop internship automation platform.
 
 ## Status
 
-Phase 0 foundation is implemented. No business pipeline logic exists yet.
+- Phase 0 — Foundation: scaffold, project config, DB, CI, lint — complete.
+- Phase 1 — Job Discovery: RSS/Atom ingestion, normalization, CLI — complete.
+- Phase 2 — Filtering & Duplicates: deterministic hard filters, 5-strategy duplicate detection, `job_matches` persistence, rejection/duplicate metrics — complete.
 
 ## Architecture
 
@@ -62,7 +64,23 @@ Run discovery once:
 uv run stagepilot discover
 ```
 
-Phase 1 discovery only fetches, normalizes, stores, logs, and skips ingestion duplicates. It does not filter, score, call AI, generate resumes, send Telegram messages, or send emails.
+Backfill Phase 2 match records for existing jobs:
+
+```bash
+uv run stagepilot discover --backfill
+```
+
+### Phase 2 Filtering & Duplicates
+
+Phase 2 adds a deterministic matching pipeline after ingestion:
+
+- **Hard Filters** — each job is evaluated against five filter categories. Rejected jobs are recorded in `job_matches` with the reason breakdown.
+- **Duplicate Detection** — five strategies (external ID, canonical URL, raw content hash, normalized hash, fuzzy title+company) are tried in priority order.
+- **Metrics** — each discovery run reports `accepted`, `rejected`, `semantic_duplicates`, `rejection_breakdown`, and `duplicate_strategy_breakdown`.
+
+All matching decisions are persisted in the `job_matches` table — never only in logs.
+
+See [`docs/phase-2-filtering-and-duplicates.md`](docs/phase-2-filtering-and-duplicates.md) for detailed documentation.
 
 ## Test
 

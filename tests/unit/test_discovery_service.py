@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from app.config.settings import FilterRules
 from app.db.base import Base
 from app.db.models.jobs import Job, JobSource, RawJob
 from app.domain.jobs.entities import DiscoveredJob, JobSourceConfig
 from app.domain.jobs.enums import JobSourceType
 from app.infrastructure.job_sources.registry import ConnectorRegistry
 from app.services.discovery_service import DiscoveryService
+from app.services.duplicate_detection_service import DuplicateDetectionService
+from app.services.filtering_service import HardFilterService
+from app.services.job_matching_service import JobMatchingService
 from app.services.job_normalization_service import JobNormalizationService
 from app.shared.time import utc_now
 from sqlalchemy import create_engine, func, select
@@ -33,6 +37,13 @@ class _FakeConnector:
         ]
 
 
+def _build_matching_service(session: Session) -> JobMatchingService:
+    """Build a JobMatchingService with default rules for testing."""
+    filters = HardFilterService(FilterRules())
+    duplicates = DuplicateDetectionService(session)
+    return JobMatchingService(session, filters, duplicates)
+
+
 def test_discovery_service_ingests_and_skips_duplicate_jobs() -> None:
     """Discovery should insert new jobs and skip duplicates on later runs."""
     session = _create_session()
@@ -50,6 +61,7 @@ def test_discovery_service_ingests_and_skips_duplicate_jobs() -> None:
         session=session,
         connector_registry=ConnectorRegistry([_FakeConnector()]),
         normalizer=JobNormalizationService(),
+        matching_service=_build_matching_service(session),
     )
 
     first = service.run_once()
@@ -57,10 +69,58 @@ def test_discovery_service_ingests_and_skips_duplicate_jobs() -> None:
 
     assert first.inserted_count == 1
     assert first.duplicate_count == 0
+    assert first.accepted >= 1
     assert second.inserted_count == 0
     assert second.duplicate_count == 1
     assert session.scalar(select(func.count()).select_from(Job)) == 1
     assert session.scalar(select(func.count()).select_from(RawJob)) == 1
+
+
+def test_discovery_reports_rejection_metrics() -> None:
+    """Discovery summary should include rejection breakdown for filtered jobs."""
+    session = _create_session()
+    session.add(
+        JobSource(
+            name="Example",
+            type=JobSourceType.RSS_FEED.value,
+            base_url="https://example.com/rss.xml",
+            config_json={},
+            is_active=True,
+        )
+    )
+    session.commit()
+
+    class _RejectedFakeConnector:
+        """Returns a job that will be rejected by hard filters."""
+
+        source_type = JobSourceType.RSS_FEED
+
+        def fetch(self, _source: JobSourceConfig) -> list[DiscoveredJob]:
+            return [
+                DiscoveredJob(
+                    external_id="job-senior",
+                    url="https://example.com/jobs/senior",
+                    title="Senior Lead Manager CDI",
+                    company="Example",
+                    location="USA",
+                    description="Full-time permanent director-level role.",
+                    raw_payload={"id": "job-senior"},
+                    discovered_at=utc_now(),
+                )
+            ]
+
+    service = DiscoveryService(
+        session=session,
+        connector_registry=ConnectorRegistry([_RejectedFakeConnector()]),
+        normalizer=JobNormalizationService(),
+        matching_service=_build_matching_service(session),
+    )
+
+    summary = service.run_once()
+    assert summary.inserted_count == 1
+    assert summary.accepted == 0
+    assert summary.rejected >= 1
+    assert len(summary.rejection_breakdown) >= 2
 
 
 def _create_session() -> Session:

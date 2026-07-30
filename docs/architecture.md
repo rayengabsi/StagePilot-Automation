@@ -94,3 +94,50 @@ stagepilot discover
 ### Logging
 
 Discovery emits structured events including `discovery_started`, `source_discovery_started`, `source_fetch_succeeded`, `job_ingested`, `job_duplicate_skipped`, `source_discovery_failed`, and `discovery_completed`.
+
+## Phase 2 Filtering & Duplicates
+
+Phase 2 adds deterministic matching after ingestion and a backfill mechanism for existing jobs.
+
+```text
+                   ┌─────────────────────────────┐
+                   │       DiscoveredJob          │
+                   └──────────┬──────────────────┘
+                              │ normalize
+                              v
+                   ┌─────────────────────────────┐
+                   │       NormalizedJob          │
+                   └──────────┬──────────────────┘
+                              │ ingest (raw_jobs -> jobs)
+                              v
+                   ┌─────────────────────────────┐
+                   │            Job               │
+                   └──────────┬──────────────────┘
+                              │
+              ┌───────────────┼───────────────┐
+              │               │               │
+              v               v               v
+    ┌─────────────────┐ ┌──────────────┐ ┌──────────────┐
+    │  Hard Filters   │ │ Duplicate    │ │  Persist     │
+    │  • PFE          │ │ Detection    │ │  JobMatch    │
+    │  • Location     │ │ • external_id│ │  record      │
+    │  • Seniority    │ │ • canonical  │ └──────────────┘
+    │  • CS Field     │ │ • raw hash   │
+    │  • Employment   │ │ • norm hash  │
+    │    Type         │ │ • fuzzy      │
+    └─────────────────┘ └──────────────┘
+```
+
+### Persistence
+
+- `job_matches` stores one decision record per job (unique on `job_id`).
+- Rejection reasons are stored as a JSON array with `category`, `detail`, and `matched_keyword`.
+- Duplicate matches record the strategy, confidence, and matched value.
+
+### Backfill
+
+The `--backfill` flag processes all existing jobs that lack a `JobMatch` record. This is safe to run repeatedly; jobs that already have a match record are skipped.
+
+```bash
+stagepilot discover --backfill
+```

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.db.models.matching import JobMatch
 
 
 class JobSource(Base):
@@ -78,3 +81,9 @@ class Job(Base):
 
     raw_job: Mapped[RawJob] = relationship(back_populates="job")
     source: Mapped[JobSource] = relationship(back_populates="jobs")
+    job_match: Mapped[JobMatch | None] = relationship(
+        "JobMatch",
+        back_populates="job",
+        uselist=False,
+        foreign_keys="JobMatch.job_id",
+    )

@@ -10,6 +10,9 @@ from app.db.session import create_database_engine, create_session_factory, sessi
 from app.infrastructure.job_sources.registry import ConnectorRegistry
 from app.infrastructure.job_sources.rss_feed_connector import RssFeedConnector
 from app.services.discovery_service import DiscoveryService
+from app.services.duplicate_detection_service import DuplicateDetectionService
+from app.services.filtering_service import HardFilterService
+from app.services.job_matching_service import JobMatchingService
 from app.services.job_normalization_service import JobNormalizationService
 from app.services.job_source_repository import JobSourceRepository
 
@@ -34,6 +37,11 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
 
     discover_parser = subparsers.add_parser("discover", help="Run job discovery once.")
+    discover_parser.add_argument(
+        "--backfill",
+        action="store_true",
+        help="Also process existing jobs that lack match records.",
+    )
     discover_parser.set_defaults(handler=_handle_discover)
 
     sources_parser = subparsers.add_parser("sources", help="Manage job sources.")
@@ -50,18 +58,25 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _handle_discover(_args: argparse.Namespace, settings: Settings) -> int:
+def _handle_discover(args: argparse.Namespace, settings: Settings) -> int:
     """Handle the discovery command."""
     engine = create_database_engine(settings)
     session_factory = create_session_factory(engine)
     with session_scope(session_factory) as session:
         registry = ConnectorRegistry([RssFeedConnector(settings)])
+        filter_service = HardFilterService(settings.filter_rules)
+        duplicate_service = DuplicateDetectionService(
+            session, fuzzy_threshold=settings.filter_rules.fuzzy_title_threshold
+        )
+        matching_service = JobMatchingService(session, filter_service, duplicate_service)
         service = DiscoveryService(
             session=session,
             connector_registry=registry,
             normalizer=JobNormalizationService(),
+            matching_service=matching_service,
         )
-        summary = service.run_once()
+        backfill = getattr(args, "backfill", False) or False
+        summary = service.run_once(backfill_existing=backfill)
 
     print(json.dumps(asdict(summary), sort_keys=True))
     return 0
