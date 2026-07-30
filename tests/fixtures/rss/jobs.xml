@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0">
+  <channel>
+    <title>Example Jobs</title>
+    <item>
+      <title>Software Engineering PFE Internship</title>
+      <link>https://example.com/jobs/1</link>
+      <guid>job-1</guid>
+      <description><![CDATA[<p>Build backend services with Python.</p>]]></description>
+      <pubDate>Thu, 30 Jul 2026 10:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title></title>
+      <link>https://example.com/jobs/invalid</link>
+    </item>
+  </channel>
+</rss>

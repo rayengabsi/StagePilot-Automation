@@ -1,0 +1,1 @@
+"""Master Profile domain package."""

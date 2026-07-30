@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Example Atom Jobs</title>
+  <entry>
+    <id>atom-job-1</id>
+    <title>AI Engineer Internship</title>
+    <link href="https://example.com/jobs/atom-1" />
+    <summary>Work on applied AI features.</summary>
+    <updated>2026-07-30T10:00:00Z</updated>
+  </entry>
+</feed>

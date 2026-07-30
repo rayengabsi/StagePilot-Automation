@@ -1,0 +1,1 @@
+"""StagePilot Automation application package."""

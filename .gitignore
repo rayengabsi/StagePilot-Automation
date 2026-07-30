@@ -1,0 +1,15 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+data/master_profile/*.json
+data/resumes/master/*
+data/resumes/generated/*
+data/ai_audit/*
+!data/**/.gitkeep
