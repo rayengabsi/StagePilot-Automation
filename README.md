@@ -7,10 +7,11 @@ AI-powered, human-in-the-loop internship automation platform.
 - Phase 0 — Foundation: scaffold, project config, DB, CI, lint — complete.
 - Phase 1 — Job Discovery: RSS/Atom ingestion, normalization, CLI — complete.
 - Phase 2 — Filtering & Duplicates: deterministic hard filters, 5-strategy duplicate detection, `job_matches` persistence, rejection/duplicate metrics — complete.
+- Phase 3 — Master Profile Engine: resume PDF import, deterministic normalization, field validation, completeness scoring, versioned persistence, JSON export — complete.
 
 ## Architecture
 
-The project is a modular monolith using Clean Architecture and Domain-Driven Design boundaries.
+The project is a modular monolith using Clean Architecture and Domain-Driven Design boundaries. The database contains 13+ tables spanning jobs (Phase 1–2), job matching (Phase 2), and profiles (Phase 3), including `profiles`, `profile_versions`, `education`, `experience`, `projects`, `skills`, `languages`, `certifications`, and `preferences`.
 
 See [`docs/architecture.md`](docs/architecture.md).
 
@@ -32,19 +33,47 @@ Copy-Item .env.example .env
 uv sync --all-extras --dev
 ```
 
+Run database migrations:
+
+```bash
+uv run alembic upgrade head
+```
+
 ## Run
 
 ```bash
 uv run stagepilot
 ```
 
-## Job Discovery
+## Usage
 
-Apply migrations before using discovery commands:
+### Profile Management
+
+Import a resume PDF, normalize, validate, and persist it:
 
 ```bash
-uv run alembic upgrade head
+uv run stagepilot profile import path/to/resume.pdf
 ```
+
+Show the current profile in JSON:
+
+```bash
+uv run stagepilot profile show
+```
+
+Export the current profile to a JSON file:
+
+```bash
+uv run stagepilot profile export --output profile.json
+```
+
+List all profile versions (newest first):
+
+```bash
+uv run stagepilot profile versions
+```
+
+### Job Discovery & Filtering
 
 Add an RSS or Atom source:
 
@@ -70,8 +99,6 @@ Backfill Phase 2 match records for existing jobs:
 uv run stagepilot discover --backfill
 ```
 
-### Phase 2 Filtering & Duplicates
-
 Phase 2 adds a deterministic matching pipeline after ingestion:
 
 - **Hard Filters** — each job is evaluated against five filter categories. Rejected jobs are recorded in `job_matches` with the reason breakdown.
@@ -81,6 +108,10 @@ Phase 2 adds a deterministic matching pipeline after ingestion:
 All matching decisions are persisted in the `job_matches` table — never only in logs.
 
 See [`docs/phase-2-filtering-and-duplicates.md`](docs/phase-2-filtering-and-duplicates.md) for detailed documentation.
+
+Phase 3 profile documentation:
+
+See [`docs/phase-3-master-profile.md`](docs/phase-3-master-profile.md) for detailed documentation.
 
 ## Test
 
@@ -102,6 +133,48 @@ Run migrations with:
 ```bash
 uv run alembic revision --autogenerate -m "message"
 uv run alembic upgrade head
+```
+
+## Project Structure
+
+```
+app/
+├── cli/
+│   └── commands.py                       # All CLI commands (discover, sources, profile)
+├── config/
+│   ├── logging.py
+│   └── settings.py                       # Settings + FilterRules model
+├── db/
+│   ├── base.py
+│   ├── models/
+│   │   ├── jobs.py                       # Phase 1: raw_jobs, jobs
+│   │   ├── matching.py                   # Phase 2: job_matches
+│   │   ├── profile.py                    # Phase 3: 9 ORM models (profiles, profile_versions, education, experience, projects, skills, languages, certifications, preferences)
+│   │   └── __init__.py
+│   └── session.py
+├── domain/
+│   ├── master_profile/                   # Phase 3: MasterProfile entities, enums, errors
+│   │   ├── entities.py
+│   │   ├── enums.py
+│   │   └── errors.py
+│   └── ... (other domain modules)
+├── infrastructure/
+│   ├── job_sources/
+│   │   ├── registry.py
+│   │   └── rss_feed_connector.py
+│   └── parsers/                          # Phase 3: ProfileParser ABC + PDF parser
+│       ├── abstract.py                   # ProfileParser (ABC)
+│       └── pdf_parser.py                 # PDFParser (pdfplumber)
+└── services/
+    ├── discovery_service.py
+    ├── duplicate_detection_service.py
+    ├── filtering_service.py
+    ├── job_matching_service.py
+    ├── job_normalization_service.py
+    ├── job_source_repository.py
+    ├── profile_normalizer.py             # Phase 3: resume text → MasterProfile
+    ├── profile_service.py                # Phase 3: import, export, versioning
+    └── profile_validator.py              # Phase 3: validation + completeness scoring
 ```
 
 ## Future Docker Support

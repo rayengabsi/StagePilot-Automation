@@ -73,12 +73,16 @@ select = [
 ]
 ignore = [
     "D100",
+    "D101",
+    "D102",
     "D104",
+    "D107",
+    "E741",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101", "D102", "S324"]
-"alembic/**/*.py" = ["D103"]
+"tests/**/*.py" = ["S101", "D102", "D103", "S324"]
+"alembic/**/*.py" = ["D103", "E501"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

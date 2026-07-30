@@ -3,18 +3,23 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict
+from pathlib import Path
 
 from app.config.logging import configure_logging
 from app.config.settings import Settings, get_settings
 from app.db.session import create_database_engine, create_session_factory, session_scope
 from app.infrastructure.job_sources.registry import ConnectorRegistry
 from app.infrastructure.job_sources.rss_feed_connector import RssFeedConnector
+from app.infrastructure.parsers.pdf_parser import PDFParser
 from app.services.discovery_service import DiscoveryService
 from app.services.duplicate_detection_service import DuplicateDetectionService
 from app.services.filtering_service import HardFilterService
 from app.services.job_matching_service import JobMatchingService
 from app.services.job_normalization_service import JobNormalizationService
 from app.services.job_source_repository import JobSourceRepository
+from app.services.profile_normalizer import ProfileNormalizer
+from app.services.profile_service import ProfileService
+from app.services.profile_validator import ProfileValidator
 
 
 def run_cli(argv: list[str] | None = None) -> int:
@@ -54,6 +59,30 @@ def _build_parser() -> argparse.ArgumentParser:
 
     list_parser = sources_subparsers.add_parser("list", help="List configured job sources.")
     list_parser.set_defaults(handler=_handle_list_sources)
+
+    profile_parser = subparsers.add_parser("profile", help="Manage the master profile.")
+    profile_subparsers = profile_parser.add_subparsers(dest="profile_command")
+
+    import_parser = profile_subparsers.add_parser("import", help="Import a resume PDF.")
+    import_parser.add_argument("file", type=str, help="Path to the resume PDF file.")
+    import_parser.add_argument(
+        "--description", type=str, default=None, help="Change description for versioning."
+    )
+    import_parser.set_defaults(handler=_handle_profile_import)
+
+    show_parser = profile_subparsers.add_parser("show", help="Show the current profile.")
+    show_parser.set_defaults(handler=_handle_profile_show)
+
+    export_parser = profile_subparsers.add_parser(
+        "export", help="Export the current profile as JSON."
+    )
+    export_parser.add_argument(
+        "--output", type=str, default="profile_export.json", help="Output file path."
+    )
+    export_parser.set_defaults(handler=_handle_profile_export)
+
+    versions_parser = profile_subparsers.add_parser("versions", help="List profile versions.")
+    versions_parser.set_defaults(handler=_handle_profile_versions)
 
     return parser
 
@@ -96,6 +125,127 @@ def _handle_add_rss_source(args: argparse.Namespace, settings: Settings) -> int:
         }
 
     print(json.dumps(payload, sort_keys=True))
+    return 0
+
+
+def _build_profile_service(settings: Settings) -> ProfileService:
+    """Build a ProfileService with its dependencies."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    session = session_factory()
+    return ProfileService(
+        session=session,
+        parser=PDFParser(),
+        normalizer=ProfileNormalizer(),
+        validator=ProfileValidator(),
+    )
+
+
+def _handle_profile_import(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the profile import command."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        service = ProfileService(
+            session=session,
+            parser=PDFParser(),
+            normalizer=ProfileNormalizer(),
+            validator=ProfileValidator(),
+        )
+        file_path = Path(args.file)
+        if not file_path.exists():
+            print(json.dumps({"error": f"File not found: {file_path}"}))
+            return 1
+        profile = service.import_resume(file_path, description=args.description)
+        completeness = service.get_completeness()
+        result = {
+            "status": "imported",
+            "full_name": profile.personal_info.full_name,
+            "education_count": len(profile.education),
+            "experience_count": len(profile.experience),
+            "skills_count": len(profile.skills),
+            "projects_count": len(profile.projects),
+            "languages_count": len(profile.languages),
+            "certifications_count": len(profile.certifications),
+            "completeness_score": completeness.score,
+            "completeness_breakdown": completeness.breakdown,
+            "missing_fields": list(completeness.missing_fields),
+        }
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+def _handle_profile_show(_args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the profile show command."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        service = ProfileService(
+            session=session,
+            parser=PDFParser(),
+            normalizer=ProfileNormalizer(),
+            validator=ProfileValidator(),
+        )
+        try:
+            profile = service.get_current_profile()
+            completeness = service.get_completeness()
+            data = profile.to_dict()
+            data["completeness_score"] = completeness.score
+            data["completeness_breakdown"] = completeness.breakdown
+            data["missing_fields"] = list(completeness.missing_fields)
+        except Exception as exc:
+            data = {"error": str(exc)}
+    print(json.dumps(data, sort_keys=True, indent=2, default=str))
+    return 0
+
+
+def _handle_profile_export(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the profile export command."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        service = ProfileService(
+            session=session,
+            parser=PDFParser(),
+            normalizer=ProfileNormalizer(),
+            validator=ProfileValidator(),
+        )
+        try:
+            output_path = Path(args.output)
+            service.export_profile(output_path)
+            result = {"status": "exported", "path": str(output_path.resolve())}
+        except Exception as exc:
+            result = {"error": str(exc)}
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+def _handle_profile_versions(_args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the profile versions command."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        service = ProfileService(
+            session=session,
+            parser=PDFParser(),
+            normalizer=ProfileNormalizer(),
+            validator=ProfileValidator(),
+        )
+        try:
+            versions = service.list_versions()
+            data = [
+                {
+                    "version": v.version_number,
+                    "completeness_score": v.completeness_score,
+                    "change_description": v.change_description,
+                    "created_at": v.created_at,
+                    "full_name": v.profile.personal_info.full_name,
+                }
+                for v in versions
+            ]
+        except Exception as exc:
+            data = {"error": str(exc)}
+    print(json.dumps(data, sort_keys=True, indent=2, default=str))
     return 0
 
 

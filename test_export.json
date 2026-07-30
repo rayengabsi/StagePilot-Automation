@@ -1,0 +1,81 @@
+{
+  "personal_info": {
+    "full_name": "John Doe",
+    "email": "john@example.com",
+    "phone": "+1-555-1234",
+    "location": null,
+    "linkedin_url": null,
+    "github_url": null,
+    "portfolio_url": null
+  },
+  "education": [
+    {
+      "institution": "BSc Computer Science - MIT 2020",
+      "degree": null,
+      "field_of_study": null,
+      "start_date": "2020-01-01",
+      "end_date": null,
+      "gpa": null,
+      "description": null
+    }
+  ],
+  "experience": [
+    {
+      "company": "Software Engineer - Google 2021-present",
+      "title": null,
+      "location": null,
+      "start_date": "2021-01-01",
+      "end_date": null,
+      "is_current": true,
+      "description": null,
+      "technologies": []
+    }
+  ],
+  "projects": [],
+  "skills": [
+    {
+      "name": "Python",
+      "category": null,
+      "proficiency": null
+    },
+    {
+      "name": "JavaScript",
+      "category": null,
+      "proficiency": null
+    },
+    {
+      "name": "SQL",
+      "category": null,
+      "proficiency": null
+    }
+  ],
+  "languages": [],
+  "certifications": [],
+  "preferences": {
+    "preferred_countries": [],
+    "preferred_cities": [],
+    "remote_preference": "any",
+    "internship_duration": "any",
+    "preferred_technologies": [],
+    "preferred_industries": [],
+    "preferred_company_size": null,
+    "preferred_language": null,
+    "salary_expectation": null
+  },
+  "completeness_score": 56.0,
+  "completeness_breakdown": {
+    "personal_info": 50.0,
+    "education": 100.0,
+    "skills": 30.0,
+    "experience": 100.0,
+    "projects_certifications_languages": 0.0
+  },
+  "missing_fields": [
+    "certifications",
+    "github_url",
+    "languages",
+    "linkedin_url",
+    "portfolio_url",
+    "projects"
+  ]
+}
