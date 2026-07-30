@@ -1,0 +1,13 @@
+[provider]
+name = "gemini"
+model = "gemini-2.0-flash-lite"
+temperature = 0.7
+max_output_tokens = 1024
+timeout_seconds = 30
+retry_count = 2
+
+[features]
+explanations = true
+resume_tailoring = true
+cover_letter = true
+email_draft = true

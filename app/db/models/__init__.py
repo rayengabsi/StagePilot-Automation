@@ -1,5 +1,6 @@
 """SQLAlchemy ORM model registry."""
 
+from app.db.models.ai_usage import TokenUsageRecord
 from app.db.models.jobs import Job, JobSource, RawJob
 from app.db.models.matching import JobMatch
 from app.db.models.profile import (
@@ -31,4 +32,5 @@ __all__ = [
     "RecommendationFeedbackRecord",
     "RecommendationRecord",
     "SkillRecord",
+    "TokenUsageRecord",
 ]

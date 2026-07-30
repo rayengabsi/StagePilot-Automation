@@ -1,1 +1,1 @@
-"""AI provider infrastructure package."""
+"""AI provider adapters package."""

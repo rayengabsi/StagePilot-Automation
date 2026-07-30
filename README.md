@@ -8,10 +8,12 @@ AI-powered, human-in-the-loop internship automation platform.
 - Phase 1 — Job Discovery: RSS/Atom ingestion, normalization, CLI — complete.
 - Phase 2 — Filtering & Duplicates: deterministic hard filters, 5-strategy duplicate detection, `job_matches` persistence, rejection/duplicate metrics — complete.
 - Phase 3 — Master Profile Engine: resume PDF import, deterministic normalization, field validation, completeness scoring, versioned persistence, JSON export — complete.
+- Phase 4 — Recommendation Engine: hard-rule gating, 8-category similarity scoring, weighted aggregation, ranking, feedback — complete.
+- Phase 5 — AI Intelligence Layer: provider abstraction (ABC + Gemini), 4 versioned prompt templates, AI orchestrator, 4 services (explanation, resume tailoring, cover letter, email), deterministic output validation, token tracking — complete.
 
 ## Architecture
 
-The project is a modular monolith using Clean Architecture and Domain-Driven Design boundaries. The database contains 13+ tables spanning jobs (Phase 1–2), job matching (Phase 2), and profiles (Phase 3), including `profiles`, `profile_versions`, `education`, `experience`, `projects`, `skills`, `languages`, `certifications`, and `preferences`.
+The project is a modular monolith using Clean Architecture and Domain-Driven Design boundaries. The database contains 16+ tables spanning jobs (Phase 1–2), job matching (Phase 2), profiles (Phase 3), recommendations & feedback (Phase 4), and AI token usage (Phase 5), including `profiles`, `profile_versions`, `education`, `experience`, `projects`, `skills`, `languages`, `certifications`, `preferences`, `recommendations`, `recommendation_feedback`, and `ai_token_usage`.
 
 See [`docs/architecture.md`](docs/architecture.md).
 
@@ -113,6 +115,64 @@ Phase 3 profile documentation:
 
 See [`docs/phase-3-master-profile.md`](docs/phase-3-master-profile.md) for detailed documentation.
 
+Phase 4 recommendation engine documentation:
+
+See [`docs/phase-4-recommendation-engine.md`](docs/phase-4-recommendation-engine.md) for detailed documentation.
+
+Phase 5 AI intelligence layer documentation:
+
+See [`docs/phase-5-ai-intelligence-layer.md`](docs/phase-5-ai-intelligence-layer.md) for detailed documentation.
+
+### AI-Powered Features
+
+Phase 5 adds optional AI features for generating human-readable communication from structured recommendation data:
+
+```bash
+# Generate a match explanation
+uv run stagepilot ai explain 1 --job-title "Engineer" --company "Acme"
+
+# Tailor a resume for a specific job
+uv run stagepilot ai tailor-resume 1 --job-description "Senior Python developer"
+
+# Generate a cover letter
+uv run stagepilot ai cover-letter 1 --company "Acme" --recipient "HR"
+
+# Draft an application email
+uv run stagepilot ai email 1 --company "Acme" --job-title "Engineer"
+
+# View token usage and cost analytics
+uv run stagepilot ai usage --limit 10
+
+# List available AI prompt templates
+uv run stagepilot ai prompts
+```
+
+AI features require a configured API key in `.env` (`GEMINI_API_KEY`). All AI outputs pass through deterministic validation (prompt injection detection, empty/short rejection, JSON schema checks) before being returned.
+
+### Recommendation Engine
+
+Phase 4 adds deterministic job matching and scoring:
+
+```bash
+# Run recommendations against all qualified jobs
+uv run stagepilot recommend
+
+# Top 5 recommendations in table format
+uv run stagepilot recommend --top 5
+
+# Output raw JSON
+uv run stagepilot recommend --top 10 --json
+
+# List persisted recommendations
+uv run stagepilot recommend --list
+
+# Submit feedback on a recommendation
+uv run stagepilot feedback 5 --reason wrong_country
+uv run stagepilot feedback 12 --reason wrong_technologies --comment "Uses Java but I only work with Python"
+```
+
+All matching weights, hard-rule toggles, and thresholds are configured in `app/config/matching.toml`.
+
 ## Test
 
 ```bash
@@ -140,25 +200,46 @@ uv run alembic upgrade head
 ```
 app/
 ├── cli/
-│   └── commands.py                       # All CLI commands (discover, sources, profile)
+│   └── commands.py                       # All CLI commands (discover, sources, profile, recommend, feedback, ai)
 ├── config/
+│   ├── ai.toml                           # Phase 5: AI provider/feature config
+│   ├── ai_config.py                      # Phase 5: AIConfig frozen dataclass + loader
 │   ├── logging.py
-│   └── settings.py                       # Settings + FilterRules model
+│   ├── matching.py                       # Phase 4: MatchingConfig frozen dataclass + loader
+│   ├── matching.toml                     # Phase 4: scoring weights, thresholds, hard-rule toggles
+│   └── settings.py                       # Settings + FilterRules model + API keys
 ├── db/
 │   ├── base.py
 │   ├── models/
+│   │   ├── ai_usage.py                   # Phase 5: TokenUsageRecord (ai_token_usage)
 │   │   ├── jobs.py                       # Phase 1: raw_jobs, jobs
 │   │   ├── matching.py                   # Phase 2: job_matches
-│   │   ├── profile.py                    # Phase 3: 9 ORM models (profiles, profile_versions, education, experience, projects, skills, languages, certifications, preferences)
+│   │   ├── profile.py                    # Phase 3: 9 ORM models
+│   │   ├── recommendation.py             # Phase 4: RecommendationRecord + FeedbackRecord
 │   │   └── __init__.py
 │   └── session.py
 ├── domain/
+│   ├── ai/                               # Phase 5: AI entities, enums, errors
+│   │   ├── entities.py
+│   │   ├── enums.py
+│   │   └── errors.py
 │   ├── master_profile/                   # Phase 3: MasterProfile entities, enums, errors
 │   │   ├── entities.py
 │   │   ├── enums.py
 │   │   └── errors.py
+│   ├── recommendation/                   # Phase 4: Recommendation domain, matcher, scorer, aggregator
+│   │   ├── aggregator.py
+│   │   ├── entities.py
+│   │   ├── enums.py
+│   │   ├── errors.py
+│   │   ├── matcher.py
+│   │   ├── profile_matcher.py
+│   │   └── scorer.py
 │   └── ... (other domain modules)
 ├── infrastructure/
+│   ├── ai/                               # Phase 5: AI provider abstraction + Gemini
+│   │   ├── abstract.py                   # AIProvider (ABC)
+│   │   └── gemini_provider.py            # GeminiProvider
 │   ├── job_sources/
 │   │   ├── registry.py
 │   │   └── rss_feed_connector.py
@@ -166,15 +247,24 @@ app/
 │       ├── abstract.py                   # ProfileParser (ABC)
 │       └── pdf_parser.py                 # PDFParser (pdfplumber)
 └── services/
+    ├── ai_orchestrator.py                # Phase 5: AI pipeline orchestrator
+    ├── cover_letter_service.py           # Phase 5: cover letter generation
     ├── discovery_service.py
     ├── duplicate_detection_service.py
+    ├── email_draft_service.py            # Phase 5: email draft generation
+    ├── explanation_service.py            # Phase 5: match explanation generation
     ├── filtering_service.py
     ├── job_matching_service.py
     ├── job_normalization_service.py
     ├── job_source_repository.py
+    ├── output_validator.py               # Phase 5: deterministic AI output validation
     ├── profile_normalizer.py             # Phase 3: resume text → MasterProfile
     ├── profile_service.py                # Phase 3: import, export, versioning
-    └── profile_validator.py              # Phase 3: validation + completeness scoring
+    ├── profile_validator.py              # Phase 3: validation + completeness scoring
+    ├── prompt_service.py                 # Phase 5: prompt template loading/rendering
+    ├── recommendation_service.py         # Phase 4: recommendation pipeline orchestration
+    ├── resume_tailor_service.py          # Phase 5: resume tailoring
+    └── token_tracker.py                  # Phase 5: AI token usage tracking
 ```
 
 ## Future Docker Support

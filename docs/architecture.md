@@ -221,3 +221,116 @@ stagepilot feedback <id> --reason <reason> [--comment <text>]
 ### Configuration
 
 All scoring weights, thresholds, hard-rule toggles, and the fuzz threshold are configured in `app/config/matching.toml`. No weights are hardcoded in Python.
+
+## Phase 5: AI Intelligence Layer
+
+Phase 5 implements the AI Intelligence Layer — an optional, provider-abstracted AI subsystem that generates human-readable communication artifacts from structured recommendation and profile data.
+
+**AI is advisory only.** It never makes hiring decisions, never changes scores, never overrides hard rules, and never modifies persisted recommendation data. All AI-generated content requires human review before use.
+
+See [`docs/phase-5-ai-intelligence-layer.md`](docs/phase-5-ai-intelligence-layer.md) for detailed documentation.
+
+### Architecture
+
+```
++-------------------------------------------------------------------+
+|                      AI Intelligence Layer                        |
++-------------------------------------------------------------------+
+|                                                                   |
+|  AIOrchestrator (single entry point)                              |
+|  +---------------------------------------------------------+     |
+|  |  1. PromptService.load(name) → render(vars)             |     |
+|  |  2. AIProvider.generate(prompt) → AIResponse            |     |
+|  |  3. OutputValidator.validate(text|json)                 |     |
+|  |  4. TokenTracker.track(...) → persist                   |     |
+|  +---------------------------------------------------------+     |
+|              |                                                    |
+|    +---------+---------+---------+---------+                     |
+|    |         |         |         |         |                     |
+|    v         v         v         v         v                     |
+| Explain  Resume   Cover   Email   PromptService                   |
+| Service   Tailor   Letter  Draft  (prompts/*.md)                 |
+|           Service  Service Service                                |
+|    |         |         |         |                                |
+|    +---------+---------+---------+                                |
+|              |                                                    |
+|              v                                                    |
+|    +-------------------+  +-------------------+                   |
+|    |  GeminiProvider   |  |  AIProvider (ABC) |                   |
+|    |  (google-genai)   |  |  (future)         |                   |
+|    +-------------------+  +-------------------+                   |
+|                                                                   |
++-------------------------------------------------------------------+
+
+Inputs:
+  +------------------+  +------------------+  +-------------------+
+  |  Recommendation  |  |  MasterProfile   |  |  CoverLetter      |
+  |  (Phase 4)       |  |  (Phase 3)       |  |  (domain entity)  |
+  +------------------+  +------------------+  +-------------------+
+
+Persistence:
+  +------------------+
+  |  ai_token_usage  |
+  |  (Phase 5)       |
+  +------------------+
+```
+
+### Provider Abstraction
+
+- `AIProvider` (ABC) defines `generate(prompt, **kwargs) -> AIResponse`
+- `GeminiProvider` implements the ABC using `google.genai.Client`
+- Future providers (OpenAI, Claude, Ollama) require only: implementation file, enum entry, `_build_provider()` branch, config change
+- No other code needs to change — orchestrator, validators, services, CLI, prompts are all provider-agnostic
+
+### 4 Prompt Templates (versioned `.md` files)
+
+| Prompt | Purpose |
+|---|---|
+| `match_explanation` | Generate human-readable explanation of score breakdown and matched/missing items |
+| `resume_tailoring` | Tailor resume sections for a specific job (summary, skills, experience, projects) |
+| `cover_letter` | Generate personalized cover letter body text |
+| `email_application` | Draft full email (subject, body, signature) |
+
+Each prompt file has front-matter metadata (`version`, `purpose`, `inputs`, `output`). All variable substitution uses `string.Template.safe_substitute()`.
+
+### 4 AI Services
+
+| Service | Method | Output Type | AI Call |
+|---|---|---|---|
+| `ExplanationService` | `explain(recommendation)` | `ExplanationResult` | `generate_text` |
+| `ResumeTailorService` | `tailor(profile, recommendation)` | `TailoredResume` | `generate_json` |
+| `CoverLetterService` | `generate(profile, recommendation)` | `CoverLetter` | `generate_text` |
+| `EmailDraftService` | `draft(cover_letter)` | `EmailDraft` | `generate_json` |
+
+### Deterministic Output Validation
+
+- Empty/short rejection (< 10 chars)
+- Prompt injection pattern detection (5 regex patterns)
+- JSON parse validation + required field schema checks
+- No ML, no heuristics, no second AI call
+
+### Token Usage Tracking
+
+Every AI API call is recorded in `ai_token_usage` (provider, model, feature, prompt version, token counts, latency, estimated cost). `TokenTracker` provides `track()` and `get_usage()` for analytics.
+
+### CLI
+
+```text
+stagepilot ai explain <id> [--job-title] [--company]
+stagepilot ai tailor-resume <id> [--job-description]
+stagepilot ai cover-letter <id> [--company] [--recipient]
+stagepilot ai email <id> [--company] [--job-title] [--recipient]
+stagepilot ai usage [--limit N] [--feature F]
+stagepilot ai prompts
+```
+
+### Design Constraints
+
+- AI never modifies deterministic matching, filtering, or scoring results
+- AI never sends emails or makes external calls beyond the configured LLM API
+- AI never persists data to tables outside `ai_token_usage`
+- AI never makes business logic decisions
+- AI never accesses the database directly
+- All AI outputs must pass deterministic validation
+- All AI calls must be tracked in `ai_token_usage`
+- All prompts must be versioned `.md` files

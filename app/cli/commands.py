@@ -5,14 +5,19 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
+from app.config.ai_config import get_ai_config
 from app.config.logging import configure_logging
 from app.config.settings import Settings, get_settings
 from app.db.session import create_database_engine, create_session_factory, session_scope
 from app.infrastructure.job_sources.registry import ConnectorRegistry
 from app.infrastructure.job_sources.rss_feed_connector import RssFeedConnector
 from app.infrastructure.parsers.pdf_parser import PDFParser
+from app.services.ai_orchestrator import AIOrchestrator
+from app.services.cover_letter_service import CoverLetterService
 from app.services.discovery_service import DiscoveryService
 from app.services.duplicate_detection_service import DuplicateDetectionService
+from app.services.email_draft_service import EmailDraftService
+from app.services.explanation_service import ExplanationService
 from app.services.filtering_service import HardFilterService
 from app.services.job_matching_service import JobMatchingService
 from app.services.job_normalization_service import JobNormalizationService
@@ -20,7 +25,9 @@ from app.services.job_source_repository import JobSourceRepository
 from app.services.profile_normalizer import ProfileNormalizer
 from app.services.profile_service import ProfileService
 from app.services.profile_validator import ProfileValidator
+from app.services.prompt_service import PromptService
 from app.services.recommendation_service import RecommendationService
+from app.services.resume_tailor_service import ResumeTailorService
 
 
 def run_cli(argv: list[str] | None = None) -> int:
@@ -117,6 +124,43 @@ def _build_parser() -> argparse.ArgumentParser:
         "--comment", type=str, default=None, help="Optional free text comment."
     )
     feedback_parser.set_defaults(handler=_handle_feedback)
+
+    ai_parser = subparsers.add_parser("ai", help="AI-powered features.")
+    ai_subparsers = ai_parser.add_subparsers(dest="ai_command")
+
+    ai_explain = ai_subparsers.add_parser(
+        "explain", help="Generate explanation for a recommendation."
+    )
+    ai_explain.add_argument("recommendation_id", type=int, help="Recommendation ID.")
+    ai_explain.add_argument("--job-title", type=str, default="", help="Job title for context.")
+    ai_explain.add_argument("--company", type=str, default="", help="Company name for context.")
+    ai_explain.set_defaults(handler=_handle_ai_explain)
+
+    ai_tailor = ai_subparsers.add_parser("tailor-resume", help="Tailor resume for a specific job.")
+    ai_tailor.add_argument("recommendation_id", type=int, help="Recommendation ID.")
+    ai_tailor.add_argument("--job-description", type=str, default="", help="Job description text.")
+    ai_tailor.set_defaults(handler=_handle_ai_tailor)
+
+    ai_cover = ai_subparsers.add_parser("cover-letter", help="Generate a cover letter.")
+    ai_cover.add_argument("recommendation_id", type=int, help="Recommendation ID.")
+    ai_cover.add_argument("--company", type=str, default="", help="Company name.")
+    ai_cover.add_argument("--recipient", type=str, default="", help="Recipient name.")
+    ai_cover.set_defaults(handler=_handle_ai_cover_letter)
+
+    ai_email = ai_subparsers.add_parser("email", help="Draft an application email.")
+    ai_email.add_argument("recommendation_id", type=int, help="Recommendation ID.")
+    ai_email.add_argument("--company", type=str, default="", help="Company name.")
+    ai_email.add_argument("--recipient", type=str, default="", help="Recipient name.")
+    ai_email.add_argument("--job-title", type=str, default="", help="Job title.")
+    ai_email.set_defaults(handler=_handle_ai_email)
+
+    ai_usage_parser = ai_subparsers.add_parser("usage", help="Show AI token usage.")
+    ai_usage_parser.add_argument("--limit", type=int, default=20, help="Number of records to show.")
+    ai_usage_parser.add_argument("--feature", type=str, default=None, help="Filter by feature.")
+    ai_usage_parser.set_defaults(handler=_handle_ai_usage)
+
+    ai_prompts_parser = ai_subparsers.add_parser("prompts", help="List available AI prompts.")
+    ai_prompts_parser.set_defaults(handler=_handle_ai_prompts)
 
     return parser
 
@@ -360,4 +404,163 @@ def _handle_feedback(args: argparse.Namespace, settings: Settings) -> int:
             "created_at": fb.created_at,
         }
     print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+def _build_orchestrator(settings: Settings) -> AIOrchestrator:
+    """Build an AIOrchestrator with injected dependencies."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    session = session_factory()
+    ai_config = get_ai_config()
+    return AIOrchestrator(ai_config=ai_config, settings=settings, session=session)
+
+
+def _handle_ai_explain(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle ai explain command."""
+    from app.services.recommendation_service import RecommendationService
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        rec_service = RecommendationService(session=session)
+        recs = rec_service.list_recommendations(top_n=100)
+        target = next((r for r in recs if r.job_id == args.recommendation_id), None)
+        if not target:
+            msg = f"Recommendation for job {args.recommendation_id} not found"
+            print(json.dumps({"error": msg}))
+            return 1
+        orchestrator = AIOrchestrator(
+            ai_config=get_ai_config(), settings=settings, session=session
+        )
+        svc = ExplanationService(orchestrator=orchestrator)
+        result = svc.explain(target, job_title=args.job_title, company=args.company)
+    print(json.dumps(result.to_dict(), sort_keys=True, indent=2))
+    return 0
+
+
+def _handle_ai_tailor(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle ai tailor-resume command."""
+    from app.infrastructure.parsers.pdf_parser import PDFParser
+    from app.services.profile_normalizer import ProfileNormalizer
+    from app.services.profile_service import ProfileService
+    from app.services.profile_validator import ProfileValidator
+    from app.services.recommendation_service import RecommendationService
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        rec_service = RecommendationService(session=session)
+        recs = rec_service.list_recommendations(top_n=100)
+        target = next((r for r in recs if r.job_id == args.recommendation_id), None)
+        if not target:
+            msg = f"Recommendation for job {args.recommendation_id} not found"
+            print(json.dumps({"error": msg}))
+            return 1
+        profile_service = ProfileService(
+            session=session, parser=PDFParser(),
+            normalizer=ProfileNormalizer(), validator=ProfileValidator(),
+        )
+        profile = profile_service.get_current_profile()
+        orchestrator = AIOrchestrator(
+            ai_config=get_ai_config(), settings=settings, session=session
+        )
+        svc = ResumeTailorService(orchestrator=orchestrator)
+        result = svc.tailor(profile, target, job_description=args.job_description)
+    print(json.dumps(result.to_dict(), sort_keys=True, indent=2))
+    return 0
+
+
+def _handle_ai_cover_letter(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle ai cover-letter command."""
+    from app.infrastructure.parsers.pdf_parser import PDFParser
+    from app.services.profile_normalizer import ProfileNormalizer
+    from app.services.profile_service import ProfileService
+    from app.services.profile_validator import ProfileValidator
+    from app.services.recommendation_service import RecommendationService
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        rec_service = RecommendationService(session=session)
+        recs = rec_service.list_recommendations(top_n=100)
+        target = next((r for r in recs if r.job_id == args.recommendation_id), None)
+        if not target:
+            msg = f"Recommendation for job {args.recommendation_id} not found"
+            print(json.dumps({"error": msg}))
+            return 1
+        profile_service = ProfileService(
+            session=session, parser=PDFParser(),
+            normalizer=ProfileNormalizer(), validator=ProfileValidator(),
+        )
+        profile = profile_service.get_current_profile()
+        orchestrator = AIOrchestrator(
+            ai_config=get_ai_config(), settings=settings, session=session
+        )
+        svc = CoverLetterService(orchestrator=orchestrator)
+        result = svc.generate(
+            profile, target, company=args.company, recipient=args.recipient,
+        )
+    print(json.dumps(result.to_dict(), sort_keys=True, indent=2))
+    return 0
+
+
+def _handle_ai_email(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle ai email command."""
+    from app.infrastructure.parsers.pdf_parser import PDFParser
+    from app.services.cover_letter_service import CoverLetterService
+    from app.services.profile_normalizer import ProfileNormalizer
+    from app.services.profile_service import ProfileService
+    from app.services.profile_validator import ProfileValidator
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        profile_service = ProfileService(
+            session=session, parser=PDFParser(),
+            normalizer=ProfileNormalizer(), validator=ProfileValidator(),
+        )
+        profile = profile_service.get_current_profile()
+        orchestrator = AIOrchestrator(
+            ai_config=get_ai_config(), settings=settings, session=session
+        )
+        cover_svc = CoverLetterService(orchestrator=orchestrator)
+        cover_letter = cover_svc.generate(
+            profile, None,  # type: ignore[arg-type]
+            company=args.company, recipient=args.recipient,
+        )
+        email_svc = EmailDraftService(orchestrator=orchestrator)
+        result = email_svc.draft(
+            cover_letter=cover_letter,
+            company=args.company,
+            job_title=args.job_title,
+            recipient=args.recipient,
+            candidate_name=profile.personal_info.full_name,
+        )
+    print(json.dumps(result.to_dict(), sort_keys=True, indent=2))
+    return 0
+
+
+def _handle_ai_usage(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle ai usage command."""
+    from app.services.token_tracker import TokenTracker
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        tracker = TokenTracker(session=session)
+        records = tracker.get_usage(limit=args.limit, feature=args.feature)
+        data = [r.to_dict() for r in records]
+    if data:
+        print(json.dumps(data, sort_keys=True, indent=2))
+    else:
+        print("No AI usage records found.")
+    return 0
+
+
+def _handle_ai_prompts(_args: argparse.Namespace, _settings: Settings) -> int:
+    """Handle ai prompts command."""
+    svc = PromptService()
+    prompts = svc.list_prompts()
+    print(json.dumps(prompts, sort_keys=True, indent=2))
     return 0
