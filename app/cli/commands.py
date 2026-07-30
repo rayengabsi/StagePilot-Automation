@@ -5,12 +5,16 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
+from sqlalchemy import select
+
 from app.config.ai_config import get_ai_config
 from app.config.logging import configure_logging
 from app.config.settings import Settings, get_settings
+from app.db.models.profile import Profile
 from app.db.session import create_database_engine, create_session_factory, session_scope
 from app.infrastructure.job_sources.registry import ConnectorRegistry
 from app.infrastructure.job_sources.rss_feed_connector import RssFeedConnector
+from app.infrastructure.parsers.parser_factory import detect_parser
 from app.infrastructure.parsers.pdf_parser import PDFParser
 from app.services.ai_orchestrator import AIOrchestrator
 from app.services.approval_service import ApprovalService
@@ -92,6 +96,32 @@ def _build_parser() -> argparse.ArgumentParser:
 
     versions_parser = profile_subparsers.add_parser("versions", help="List profile versions.")
     versions_parser.set_defaults(handler=_handle_profile_versions)
+
+    edit_parser = profile_subparsers.add_parser(
+        "edit", help="Edit profile metadata (name, summary)."
+    )
+    edit_parser.add_argument("--name", type=str, default=None, help="Human-readable profile name.")
+    edit_parser.add_argument("--summary", type=str, default=None, help="Professional summary text.")
+    edit_parser.add_argument(
+        "--profile-id", type=int, default=None, help="Profile ID (default: active)."
+    )
+    edit_parser.set_defaults(handler=_handle_profile_edit)
+
+    validate_parser = profile_subparsers.add_parser(
+        "validate", help="Validate the current profile."
+    )
+    validate_parser.set_defaults(handler=_handle_profile_validate)
+
+    activate_parser = profile_subparsers.add_parser("activate", help="Activate a profile by ID.")
+    activate_parser.add_argument("profile_id", type=int, help="Profile ID to activate.")
+    activate_parser.set_defaults(handler=_handle_profile_activate)
+
+    list_parser = profile_subparsers.add_parser("list", help="List all profiles.")
+    list_parser.set_defaults(handler=_handle_profile_list)
+
+    delete_parser = profile_subparsers.add_parser("delete", help="Delete a profile by ID.")
+    delete_parser.add_argument("profile_id", type=int, help="Profile ID to delete.")
+    delete_parser.set_defaults(handler=_handle_profile_delete)
 
     recommend_parser = subparsers.add_parser(
         "recommend", help="Run the recommendation engine against qualified jobs."
@@ -530,7 +560,7 @@ def _handle_profile_import(args: argparse.Namespace, settings: Settings) -> int:
     with session_scope(session_factory) as session:
         service = ProfileService(
             session=session,
-            parser=PDFParser(),
+            parser=detect_parser(args.file),
             normalizer=ProfileNormalizer(),
             validator=ProfileValidator(),
         )
@@ -628,6 +658,134 @@ def _handle_profile_versions(_args: argparse.Namespace, settings: Settings) -> i
         except Exception as exc:
             data = {"error": str(exc)}
     print(json.dumps(data, sort_keys=True, indent=2, default=str))
+    return 0
+
+
+def _handle_profile_edit(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the profile edit command."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        service = ProfileService(
+            session=session,
+            parser=PDFParser(),
+            normalizer=ProfileNormalizer(),
+            validator=ProfileValidator(),
+        )
+        profile_id = args.profile_id
+        if profile_id is None:
+            try:
+                service.get_current_profile()
+                active_id = session.scalar(
+                    select(Profile.id).where(Profile.active.is_(True)).limit(1)
+                )
+                profile_id = active_id
+            except Exception as exc:
+                print(json.dumps({"error": f"No active profile: {exc}"}))
+                return 1
+
+        try:
+            service.edit_profile(
+                profile_id=profile_id,
+                name=args.name,
+                summary=args.summary,
+            )
+            result = {"status": "updated", "profile_id": profile_id}
+        except Exception as exc:
+            result = {"error": str(exc)}
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+def _handle_profile_validate(_args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the profile validate command."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        service = ProfileService(
+            session=session,
+            parser=PDFParser(),
+            normalizer=ProfileNormalizer(),
+            validator=ProfileValidator(),
+        )
+        try:
+            errors = service.validate_profile()
+            if errors:
+                result = {
+                    "valid": False,
+                    "errors": [str(e) for e in errors],
+                    "error_count": len(errors),
+                }
+            else:
+                completeness = service.get_completeness()
+                result = {
+                    "valid": True,
+                    "completeness_score": completeness.score,
+                    "completeness_breakdown": completeness.breakdown,
+                    "missing_fields": list(completeness.missing_fields),
+                }
+        except Exception as exc:
+            result = {"error": str(exc)}
+    print(json.dumps(result, sort_keys=True, indent=2))
+    return 0
+
+
+def _handle_profile_activate(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the profile activate command."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        service = ProfileService(
+            session=session,
+            parser=PDFParser(),
+            normalizer=ProfileNormalizer(),
+            validator=ProfileValidator(),
+        )
+        try:
+            name = service.activate_profile(args.profile_id)
+            result = {"status": "activated", "name": name}
+        except Exception as exc:
+            result = {"error": str(exc)}
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+def _handle_profile_list(_args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the profile list command."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        service = ProfileService(
+            session=session,
+            parser=PDFParser(),
+            normalizer=ProfileNormalizer(),
+            validator=ProfileValidator(),
+        )
+        try:
+            profiles = service.list_profiles()
+        except Exception as exc:
+            profiles = [{"error": str(exc)}]
+    print(json.dumps([dict(p) for p in profiles], sort_keys=True, indent=2))
+    return 0
+
+
+def _handle_profile_delete(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the profile delete command."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        service = ProfileService(
+            session=session,
+            parser=PDFParser(),
+            normalizer=ProfileNormalizer(),
+            validator=ProfileValidator(),
+        )
+        try:
+            service.delete_profile(args.profile_id)
+            result = {"status": "deleted", "profile_id": args.profile_id}
+        except Exception as exc:
+            result = {"error": str(exc)}
+    print(json.dumps(result, sort_keys=True))
     return 0
 
 

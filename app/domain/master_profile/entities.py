@@ -13,9 +13,11 @@ class PersonalInfo:
     email: str | None = None
     phone: str | None = None
     location: str | None = None
+    nationality: str | None = None
     linkedin_url: str | None = None
     github_url: str | None = None
     portfolio_url: str | None = None
+    summary: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +75,23 @@ class Certification:
 
 
 @dataclass(frozen=True, slots=True)
+class Award:
+    name: str
+    issuer: str | None = None
+    date: date | None = None
+    description: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Publication:
+    title: str
+    publisher: str | None = None
+    date: date | None = None
+    url: str | None = None
+    description: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Preference:
     preferred_countries: tuple[str, ...] = ()
     preferred_cities: tuple[str, ...] = ()
@@ -94,6 +113,8 @@ class MasterProfile:
     skills: tuple[Skill, ...] = ()
     languages: tuple[Language, ...] = ()
     certifications: tuple[Certification, ...] = ()
+    awards: tuple[Award, ...] = ()
+    publications: tuple[Publication, ...] = ()
     preferences: Preference = field(default_factory=Preference)
 
     def to_dict(self) -> dict[str, Any]:
@@ -103,9 +124,11 @@ class MasterProfile:
                 "email": self.personal_info.email,
                 "phone": self.personal_info.phone,
                 "location": self.personal_info.location,
+                "nationality": self.personal_info.nationality,
                 "linkedin_url": self.personal_info.linkedin_url,
                 "github_url": self.personal_info.github_url,
                 "portfolio_url": self.personal_info.portfolio_url,
+                "summary": self.personal_info.summary,
             },
             "education": [
                 {
@@ -166,6 +189,25 @@ class MasterProfile:
                     "url": c.url,
                 }
                 for c in self.certifications
+            ],
+            "awards": [
+                {
+                    "name": a.name,
+                    "issuer": a.issuer,
+                    "date": str(a.date) if a.date else None,
+                    "description": a.description,
+                }
+                for a in self.awards
+            ],
+            "publications": [
+                {
+                    "title": p.title,
+                    "publisher": p.publisher,
+                    "date": str(p.date) if p.date else None,
+                    "url": p.url,
+                    "description": p.description,
+                }
+                for p in self.publications
             ],
             "preferences": {
                 "preferred_countries": list(self.preferences.preferred_countries),

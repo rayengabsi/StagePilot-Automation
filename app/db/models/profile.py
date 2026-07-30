@@ -15,6 +15,8 @@ class Profile(Base):
     __tablename__ = "profiles"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True, default=None)
+    active: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -36,6 +38,12 @@ class Profile(Base):
         back_populates="profile", cascade="all, delete-orphan"
     )
     certifications_collection: Mapped[list[CertificationRecord]] = relationship(
+        back_populates="profile", cascade="all, delete-orphan"
+    )
+    awards_collection: Mapped[list[AwardRecord]] = relationship(
+        back_populates="profile", cascade="all, delete-orphan"
+    )
+    publications_collection: Mapped[list[PublicationRecord]] = relationship(
         back_populates="profile", cascade="all, delete-orphan"
     )
     preference: Mapped[PreferenceRecord | None] = relationship(
@@ -156,6 +164,37 @@ class CertificationRecord(Base):
     url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     profile: Mapped[Profile] = relationship(back_populates="certifications_collection")
+
+
+class AwardRecord(Base):
+    """Normalized award entry."""
+
+    __tablename__ = "awards"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    issuer: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    profile: Mapped[Profile] = relationship(back_populates="awards_collection")
+
+
+class PublicationRecord(Base):
+    """Normalized publication entry."""
+
+    __tablename__ = "publications"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    publisher: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    profile: Mapped[Profile] = relationship(back_populates="publications_collection")
 
 
 class PreferenceRecord(Base):

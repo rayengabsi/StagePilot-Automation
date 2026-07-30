@@ -11,6 +11,7 @@ from app.db.models.jobs import Job, JobSource, RawJob
 from app.db.models.matching import JobMatch
 from app.db.models.pipeline import PipelineRunRecord
 from app.db.models.profile import (
+    AwardRecord,
     CertificationRecord,
     EducationRecord,
     ExperienceRecord,
@@ -19,6 +20,7 @@ from app.db.models.profile import (
     Profile,
     ProfileVersionRecord,
     ProjectRecord,
+    PublicationRecord,
     SkillRecord,
 )
 from app.db.models.recommendation import RecommendationFeedbackRecord, RecommendationRecord
@@ -28,6 +30,7 @@ __all__ = [
     "ApprovalCommentRecord",
     "ApprovalEventRecord",
     "ApprovalQueueRecord",
+    "AwardRecord",
     "CertificationRecord",
     "EducationRecord",
     "ExperienceRecord",
@@ -40,6 +43,7 @@ __all__ = [
     "Profile",
     "ProfileVersionRecord",
     "ProjectRecord",
+    "PublicationRecord",
     "RawJob",
     "RecommendationFeedbackRecord",
     "RecommendationRecord",

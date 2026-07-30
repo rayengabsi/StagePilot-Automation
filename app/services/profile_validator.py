@@ -31,6 +31,8 @@ class ProfileValidator:
         self._validate_certifications(profile, errors)
         self._validate_projects(profile, errors)
         self._validate_languages(profile, errors)
+        self._validate_awards(profile, errors)
+        self._validate_publications(profile, errors)
         return errors
 
     def _validate_personal_info(
@@ -229,6 +231,48 @@ class ProfileValidator:
                 )
             seen.add(lower)
 
+    def _validate_awards(
+        self, profile: MasterProfile, errors: list[ValidationError]
+    ) -> None:
+        seen: set[str] = set()
+        for i, award in enumerate(profile.awards):
+            if not award.name or not award.name.strip():
+                errors.append(
+                    ValidationError(field=f"awards[{i}]", message="Award name is required.")
+                )
+            lower = award.name.lower().strip()
+            if lower in seen:
+                errors.append(
+                    ValidationError(
+                        field=f"awards[{i}]",
+                        message="Duplicate award.",
+                        value=award.name,
+                    )
+                )
+            seen.add(lower)
+
+    def _validate_publications(
+        self, profile: MasterProfile, errors: list[ValidationError]
+    ) -> None:
+        seen: set[str] = set()
+        for i, pub in enumerate(profile.publications):
+            if not pub.title or not pub.title.strip():
+                errors.append(
+                    ValidationError(
+                        field=f"publications[{i}]", message="Publication title is required."
+                    )
+                )
+            lower = pub.title.lower().strip()
+            if lower in seen:
+                errors.append(
+                    ValidationError(
+                        field=f"publications[{i}]",
+                        message="Duplicate publication.",
+                        value=pub.title,
+                    )
+                )
+            seen.add(lower)
+
     def compute_completeness(self, profile: MasterProfile) -> ProfileCompleteness:
         """Compute a completeness score (0-100) for the profile.
 
@@ -279,9 +323,9 @@ class ProfileValidator:
         if not profile.experience:
             missing.append("experience")
 
-        # Projects / Certifications / Languages: 20%
+        # Projects / Certifications / Languages / Awards / Publications: 20%
         extra_score = 0.0
-        extra_max = 3.0
+        extra_max = 5.0
         if profile.projects:
             extra_score += 1.0
         else:
@@ -294,8 +338,16 @@ class ProfileValidator:
             extra_score += 1.0
         else:
             missing.append("languages")
+        if profile.awards:
+            extra_score += 1.0
+        else:
+            missing.append("awards")
+        if profile.publications:
+            extra_score += 1.0
+        else:
+            missing.append("publications")
         extra_pct = (extra_score / extra_max) * 100.0 if extra_max > 0 else 0.0
-        breakdown["projects_certifications_languages"] = round(extra_pct, 1)
+        breakdown["extras"] = round(extra_pct, 1)
 
         total = (
             pi_pct * 0.20 + edu_pct * 0.20 + skills_pct * 0.20 + exp_pct * 0.20 + extra_pct * 0.20

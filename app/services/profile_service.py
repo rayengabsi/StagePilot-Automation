@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models.profile import (
+    AwardRecord,
     CertificationRecord,
     EducationRecord,
     ExperienceRecord,
@@ -16,9 +17,11 @@ from app.db.models.profile import (
     Profile,
     ProfileVersionRecord,
     ProjectRecord,
+    PublicationRecord,
     SkillRecord,
 )
 from app.domain.master_profile.entities import (
+    Award,
     Certification,
     Education,
     Experience,
@@ -29,6 +32,7 @@ from app.domain.master_profile.entities import (
     ProfileCompleteness,
     ProfileVersion,
     Project,
+    Publication,
     Skill,
 )
 from app.domain.master_profile.enums import InternshipDuration, ProficiencyLevel, RemotePreference
@@ -39,7 +43,7 @@ from app.services.profile_validator import ProfileValidator
 
 
 class ProfileService:
-    """Manage the master profile: import, export, versioning, and show."""
+    """Manage the master profile: import, export, versioning, activate, list, delete, edit."""
 
     def __init__(
         self,
@@ -54,10 +58,6 @@ class ProfileService:
         self._validator = validator
 
     def import_resume(self, file_path: Path, description: str | None = None) -> MasterProfile:
-        """Import a resume file, extract text, normalize, validate, and persist.
-
-        Returns the normalized MasterProfile.
-        """
         raw_text = self._parser.parse(file_path)
         profile = self._normalizer.normalize(raw_text, _source_path=file_path)
         errors = self._validator.validate(profile)
@@ -75,10 +75,9 @@ class ProfileService:
         completeness: ProfileCompleteness,
         description: str,
     ) -> None:
-        """Persist a normalized profile to the database, creating version history."""
         profile_row = self._session.scalar(select(Profile).limit(1))
         if profile_row is None:
-            profile_row = Profile()
+            profile_row = Profile(active=True)
             self._session.add(profile_row)
             self._session.flush()
 
@@ -88,6 +87,8 @@ class ProfileService:
         self._replace_skills(profile_row.id, profile.skills)
         self._replace_languages(profile_row.id, profile.languages)
         self._replace_certifications(profile_row.id, profile.certifications)
+        self._replace_awards(profile_row.id, profile.awards)
+        self._replace_publications(profile_row.id, profile.publications)
         self._replace_preferences(profile_row.id, profile.preferences)
 
         version_number = self._next_version_number(profile_row.id)
@@ -181,6 +182,33 @@ class ProfileService:
                 )
             )
 
+    def _replace_awards(self, profile_id: int, entries: tuple[Award, ...]) -> None:
+        self._session.query(AwardRecord).filter_by(profile_id=profile_id).delete()
+        for a in entries:
+            self._session.add(
+                AwardRecord(
+                    profile_id=profile_id,
+                    name=a.name,
+                    issuer=a.issuer,
+                    date=a.date,
+                    description=a.description,
+                )
+            )
+
+    def _replace_publications(self, profile_id: int, entries: tuple[Publication, ...]) -> None:
+        self._session.query(PublicationRecord).filter_by(profile_id=profile_id).delete()
+        for p in entries:
+            self._session.add(
+                PublicationRecord(
+                    profile_id=profile_id,
+                    title=p.title,
+                    publisher=p.publisher,
+                    date=p.date,
+                    url=p.url,
+                    description=p.description,
+                )
+            )
+
     def _replace_preferences(self, profile_id: int, pref: Preference) -> None:
         existing = self._session.query(PreferenceRecord).filter_by(profile_id=profile_id).first()
         if existing:
@@ -218,14 +246,20 @@ class ProfileService:
         return (max_version or 0) + 1
 
     def get_current_profile(self) -> MasterProfile:
-        """Retrieve the current profile from the database."""
-        profile_row = self._session.scalar(select(Profile).limit(1))
+        profile_row = self._session.scalar(
+            select(Profile).where(Profile.active.is_(True)).limit(1)
+        )
         if profile_row is None:
-            raise ProfileNotFoundError("No profile has been imported yet.")
+            raise ProfileNotFoundError("No active profile found.")
+        return self._db_to_domain(profile_row)
+
+    def get_profile_by_id(self, profile_id: int) -> MasterProfile:
+        profile_row = self._session.get(Profile, profile_id)
+        if profile_row is None:
+            raise ProfileNotFoundError(f"Profile {profile_id} not found.")
         return self._db_to_domain(profile_row)
 
     def _db_to_domain(self, profile_row: Profile) -> MasterProfile:
-        """Reconstruct a domain MasterProfile from database records."""
         latest_version = self._session.scalar(
             select(ProfileVersionRecord)
             .where(ProfileVersionRecord.profile_id == profile_row.id)
@@ -241,9 +275,11 @@ class ProfileService:
                 email=pi.get("email"),
                 phone=pi.get("phone"),
                 location=pi.get("location"),
+                nationality=pi.get("nationality"),
                 linkedin_url=pi.get("linkedin_url"),
                 github_url=pi.get("github_url"),
                 portfolio_url=pi.get("portfolio_url"),
+                summary=pi.get("summary"),
             )
         edu = tuple(
             Education(
@@ -302,6 +338,20 @@ class ProfileService:
             Certification(name=c.name, issuer=c.issuer, date=c.date, url=c.url)
             for c in profile_row.certifications_collection
         )
+        awards = tuple(
+            Award(name=a.name, issuer=a.issuer, date=a.date, description=a.description)
+            for a in profile_row.awards_collection
+        )
+        pubs = tuple(
+            Publication(
+                title=p.title,
+                publisher=p.publisher,
+                date=p.date,
+                url=p.url,
+                description=p.description,
+            )
+            for p in profile_row.publications_collection
+        )
         pref_row = profile_row.preference
         pref = Preference()
         if pref_row:
@@ -328,20 +378,17 @@ class ProfileService:
             skills=skills,
             languages=langs,
             certifications=certs,
+            awards=awards,
+            publications=pubs,
             preferences=pref,
         )
 
     def export_profile(self, file_path: Path) -> None:
-        """Export the current profile as JSON."""
         profile = self.get_current_profile()
+        profile_row = self._session.scalar(select(Profile).where(Profile.active.is_(True)).limit(1))
         data = profile.to_dict()
-        version_row = self._session.scalar(
-            select(ProfileVersionRecord)
-            .where(ProfileVersionRecord.profile_id == select(Profile.id).limit(1).scalar_subquery())
-            .order_by(ProfileVersionRecord.version_number.desc())
-            .limit(1)
-        )
-        if version_row is not None:
+        if profile_row is not None:
+            data["name"] = profile_row.name
             completeness = self._validator.compute_completeness(profile)
             data["completeness_score"] = completeness.score
             data["completeness_breakdown"] = completeness.breakdown
@@ -350,7 +397,6 @@ class ProfileService:
             json.dump(data, f, indent=2, default=str)
 
     def list_versions(self) -> tuple[ProfileVersion, ...]:
-        """List all profile versions."""
         profile_row = self._session.scalar(select(Profile).limit(1))
         if profile_row is None:
             raise ProfileNotFoundError("No profile has been imported yet.")
@@ -373,17 +419,121 @@ class ProfileService:
             )
         return tuple(versions)
 
+    def list_profiles(self) -> tuple[dict[str, Any], ...]:
+        rows = self._session.scalars(
+            select(Profile).order_by(Profile.created_at.desc())
+        ).all()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                profile = self._db_to_domain(row)
+            except Exception:  # noqa: S112
+                continue
+            c = self._validator.compute_completeness(profile)
+            result.append({
+                "id": row.id,
+                "name": row.name or profile.personal_info.full_name or f"Profile #{row.id}",
+                "active": row.active,
+                "full_name": profile.personal_info.full_name,
+                "email": profile.personal_info.email,
+                "completeness_score": c.score,
+                "created_at": row.created_at.isoformat() if row.created_at else "",
+            })
+        return tuple(result)
+
+    def activate_profile(self, profile_id: int) -> str:
+        row = self._session.get(Profile, profile_id)
+        if row is None:
+            raise ProfileNotFoundError(f"Profile {profile_id} not found.")
+        name = row.name or f"Profile #{row.id}"
+        self._session.query(Profile).update({"active": False})
+        row.active = True
+        self._session.commit()
+        return name
+
+    def delete_profile(self, profile_id: int) -> None:
+        row = self._session.get(Profile, profile_id)
+        if row is None:
+            raise ProfileNotFoundError(f"Profile {profile_id} not found.")
+        self._session.delete(row)
+        self._session.commit()
+
+    def edit_profile(
+        self,
+        profile_id: int,
+        name: str | None = None,
+        summary: str | None = None,
+    ) -> None:
+        row = self._session.get(Profile, profile_id)
+        if row is None:
+            raise ProfileNotFoundError(f"Profile {profile_id} not found.")
+        if name is not None:
+            row.name = name
+        if summary is not None:
+            profile = self._db_to_domain(row)
+            pi = PersonalInfo(
+                full_name=profile.personal_info.full_name,
+                email=profile.personal_info.email,
+                phone=profile.personal_info.phone,
+                location=profile.personal_info.location,
+                nationality=profile.personal_info.nationality,
+                linkedin_url=profile.personal_info.linkedin_url,
+                github_url=profile.personal_info.github_url,
+                portfolio_url=profile.personal_info.portfolio_url,
+                summary=summary,
+            )
+            completeness = self._validator.compute_completeness(profile)
+            new_profile = MasterProfile(
+                personal_info=pi,
+                education=profile.education,
+                experience=profile.experience,
+                projects=profile.projects,
+                skills=profile.skills,
+                languages=profile.languages,
+                certifications=profile.certifications,
+                awards=profile.awards,
+                publications=profile.publications,
+                preferences=profile.preferences,
+            )
+            self._replace_education(row.id, new_profile.education)
+            self._replace_experience(row.id, new_profile.experience)
+            self._replace_projects(row.id, new_profile.projects)
+            self._replace_skills(row.id, new_profile.skills)
+            self._replace_languages(row.id, new_profile.languages)
+            self._replace_certifications(row.id, new_profile.certifications)
+            self._replace_awards(row.id, new_profile.awards)
+            self._replace_publications(row.id, new_profile.publications)
+            self._replace_preferences(row.id, new_profile.preferences)
+            vn = self._next_version_number(row.id)
+            version = ProfileVersionRecord(
+                profile_id=row.id,
+                version_number=vn,
+                snapshot_json=new_profile.to_dict(),
+                completeness_score=completeness.score,
+                change_description="Edited summary",
+            )
+            self._session.add(version)
+        self._session.commit()
+
+    def validate_profile(self, profile_id: int | None = None) -> list[Any]:
+        if profile_id is not None:
+            profile = self.get_profile_by_id(profile_id)
+        else:
+            profile = self.get_current_profile()
+        return self._validator.validate(profile)
+
     def _dict_to_profile(self, data: dict[str, Any]) -> MasterProfile:
-        """Reconstruct a MasterProfile from a dictionary (e.g. version snapshot)."""
         pi_data = data.get("personal_info", {})
         pi = PersonalInfo(
             full_name=pi_data.get("full_name", ""),
             email=pi_data.get("email"),
             phone=pi_data.get("phone"),
             location=pi_data.get("location"),
+            nationality=pi_data.get("nationality"),
             linkedin_url=pi_data.get("linkedin_url"),
             github_url=pi_data.get("github_url"),
             portfolio_url=pi_data.get("portfolio_url"),
+            summary=pi_data.get("summary"),
         )
         edu = tuple(
             Education(
@@ -436,6 +586,25 @@ class ProfileService:
             )
             for c in data.get("certifications", [])
         )
+        awards = tuple(
+            Award(
+                name=a.get("name", ""),
+                issuer=a.get("issuer"),
+                date=a.get("date"),
+                description=a.get("description"),
+            )
+            for a in data.get("awards", [])
+        )
+        pubs = tuple(
+            Publication(
+                title=p.get("title", ""),
+                publisher=p.get("publisher"),
+                date=p.get("date"),
+                url=p.get("url"),
+                description=p.get("description"),
+            )
+            for p in data.get("publications", [])
+        )
         pref_data = data.get("preferences", {})
         pref = Preference(
             preferred_countries=tuple(pref_data.get("preferred_countries", [])),
@@ -456,10 +625,11 @@ class ProfileService:
             skills=skills,
             languages=langs,
             certifications=certs,
+            awards=awards,
+            publications=pubs,
             preferences=pref,
         )
 
     def get_completeness(self) -> ProfileCompleteness:
-        """Compute and return the completeness score for the current profile."""
         profile = self.get_current_profile()
         return self._validator.compute_completeness(profile)

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from app.domain.master_profile.entities import (
+    Award,
     Certification,
     Education,
     Experience,
@@ -14,6 +15,7 @@ from app.domain.master_profile.entities import (
     PersonalInfo,
     Preference,
     Project,
+    Publication,
     Skill,
 )
 from app.domain.master_profile.enums import ProficiencyLevel
@@ -62,6 +64,9 @@ class ProfileNormalizer:
             "certification",
             "certifications and training",
         ],
+        "summary": ["summary", "profile", "professional summary", "about me", "profil"],
+        "awards": ["awards", "honors", "honours", "distinctions", "prix", "récompenses"],
+        "publications": ["publications", "papers", "research", "publications et recherche"],
     }
 
     EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
@@ -78,13 +83,15 @@ class ProfileNormalizer:
     def normalize(self, raw_text: str, _source_path: Path | None = None) -> MasterProfile:
         """Convert raw resume text into a normalized MasterProfile."""
         sections = self._split_sections(raw_text)
-        personal_info = self._extract_personal_info(raw_text)
+        personal_info = self._extract_personal_info(raw_text, sections.get("summary", ""))
         education = self._parse_education(sections.get("education", ""))
         experience = self._parse_experience(sections.get("experience", ""))
         projects = self._parse_projects(sections.get("projects", ""))
         skills = self._parse_skills(sections.get("skills", ""))
         languages = self._parse_languages(sections.get("languages", ""))
         certifications = self._parse_certifications(sections.get("certifications", ""))
+        awards = self._parse_awards(sections.get("awards", ""))
+        publications = self._parse_publications(sections.get("publications", ""))
         preferences = Preference()
 
         return MasterProfile(
@@ -95,6 +102,8 @@ class ProfileNormalizer:
             skills=skills,
             languages=languages,
             certifications=certifications,
+            awards=awards,
+            publications=publications,
             preferences=preferences,
         )
 
@@ -132,7 +141,16 @@ class ProfileNormalizer:
 
         return sections
 
-    def _extract_personal_info(self, text: str) -> PersonalInfo:
+    NATIONALITY_KEYWORDS: ClassVar[list[str]] = [
+        "tunisian", "french", "american", "british", "german", "spanish",
+        "italian", "portuguese", "dutch", "belgian", "swiss", "austrian",
+        "swedish", "norwegian", "danish", "finnish", "canadian", "australian",
+        "japanese", "chinese", "indian", "brazilian", "mexican", "algerian",
+        "moroccan", "egyptian", "senegalese", "ivoirian", "cameroonian",
+        "tunisienne", "française", "americaine", "allemande",
+    ]
+
+    def _extract_personal_info(self, text: str, summary_text: str = "") -> PersonalInfo:
         """Extract personal information from raw text headers."""
         lines = text.split("\n")
         first_lines = [l.strip() for l in lines[:10] if l.strip()]
@@ -152,13 +170,25 @@ class ProfileNormalizer:
         emails_list = list(set(emails))
         phones_list = list({p.strip() for p in phones if p.strip()})
 
+        # Nationality detection (first few lines, case-insensitive)
+        first_50 = " ".join(first_lines[:20]).lower()
+        nationality: str | None = None
+        for kw in self.NATIONALITY_KEYWORDS:
+            if kw in first_50:
+                nationality = kw.capitalize()
+                break
+
+        summary = summary_text.strip() if summary_text and len(summary_text.strip()) > 20 else None
+
         return PersonalInfo(
             full_name=name.strip(),
             email=emails_list[0] if emails_list else None,
             phone=phones_list[0] if phones_list else None,
+            nationality=nationality,
             linkedin_url=linkedin,
             github_url=github,
             portfolio_url=portfolio,
+            summary=summary,
         )
 
     def _parse_education(self, text: str) -> tuple[Education, ...]:
@@ -375,6 +405,36 @@ class ProfileNormalizer:
             if not item:
                 continue
             entries.append(Certification(name=item))
+        return tuple(entries)
+
+    def _parse_awards(self, text: str) -> tuple[Award, ...]:
+        if not text.strip():
+            return ()
+        entries: list[Award] = []
+        items = re.split(r"[,;\n]", text)
+        for item in items:
+            item = item.strip().strip("-*").strip()
+            if not item:
+                continue
+            entries.append(Award(name=item))
+        return tuple(entries)
+
+    def _parse_publications(self, text: str) -> tuple[Publication, ...]:
+        if not text.strip():
+            return ()
+        entries: list[Publication] = []
+        items = re.split(r"[,;\n]", text)
+        for item in items:
+            item = item.strip().strip("-*").strip()
+            if not item or len(item) < 5:
+                continue
+            urls = self.URL_RE.findall(item)
+            entries.append(
+                Publication(
+                    title=item,
+                    url=urls[0] if urls else None,
+                )
+            )
         return tuple(entries)
 
     def _split_into_blocks(self, text: str) -> list[str]:
