@@ -76,9 +76,12 @@ class RendererFactory:
     ) -> list[DocumentOutput]:
         context = RenderContext.from_profile(profile)
         return self._cover_renderer.render_all(
-            context, cover_data, output_dir,
+            context,
+            cover_data,
+            output_dir,
             template_name=template_name,
-            theme_name=theme_name, formats=formats,
+            theme_name=theme_name,
+            formats=formats,
         )
 
     def list_templates(self) -> list[dict[str, str]]:

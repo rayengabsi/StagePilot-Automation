@@ -42,8 +42,10 @@ class PdfRenderer(DocumentRenderer):
         doc = SimpleDocTemplate(
             str(output_path),
             pagesize=(page_w, page_h),
-            leftMargin=margin_l, rightMargin=margin_r,
-            topMargin=margin_t, bottomMargin=margin_b,
+            leftMargin=margin_l,
+            rightMargin=margin_r,
+            topMargin=margin_t,
+            bottomMargin=margin_b,
             title=f"Resume - {context.personal_info.full_name}",
             author="StagePilot Automation",
         )
@@ -77,9 +79,12 @@ class PdfRenderer(DocumentRenderer):
 
         doc.build(story)
         return DocumentOutput(
-            path=output_path, format="pdf",
-            page_count=1, sections_rendered=sections_rendered,
-            template_used=effective.name, theme_used=theme.name,
+            path=output_path,
+            format="pdf",
+            page_count=1,
+            sections_rendered=sections_rendered,
+            template_used=effective.name,
+            theme_used=theme.name,
         )
 
     def render_cover_letter(
@@ -101,8 +106,10 @@ class PdfRenderer(DocumentRenderer):
         doc = SimpleDocTemplate(
             str(output_path),
             pagesize=(page_w, page_h),
-            leftMargin=margin_l, rightMargin=margin_r,
-            topMargin=margin_t, bottomMargin=margin_b,
+            leftMargin=margin_l,
+            rightMargin=margin_r,
+            topMargin=margin_t,
+            bottomMargin=margin_b,
             title=f"Cover Letter - {context.personal_info.full_name}",
             author="StagePilot Automation",
         )
@@ -130,14 +137,15 @@ class PdfRenderer(DocumentRenderer):
 
         doc.build(story)
         return DocumentOutput(
-            path=output_path, format="pdf",
-            page_count=1, sections_rendered=1,
-            template_used=effective.name, theme_used=theme.name,
+            path=output_path,
+            format="pdf",
+            page_count=1,
+            sections_rendered=1,
+            template_used=effective.name,
+            theme_used=theme.name,
         )
 
-    def _build_header(
-        self, context: RenderContext, _template: TemplateDef, styles: dict
-    ) -> list:
+    def _build_header(self, context: RenderContext, _template: TemplateDef, styles: dict) -> list:
         result: list = []
         name = context.personal_info.full_name
         result.append(Paragraph(name, styles["heading"]))
@@ -153,24 +161,24 @@ class PdfRenderer(DocumentRenderer):
         result.append(Spacer(1, 8))
         return result
 
-    def _section_title(
-        self, name: str, _template: TemplateDef, styles: dict
-    ) -> Paragraph:
+    def _section_title(self, name: str, _template: TemplateDef, styles: dict) -> Paragraph:
         label = name.replace("_", " ").title()
         return Paragraph(label, styles["section_title"])
 
     def _divider(self, template: TemplateDef) -> Table:
         color = HexColor(template.colors.section_divider)
         t = Table([[""]], colWidths=[450], rowHeights=[1])
-        t.setStyle(TableStyle([
-            ("LINEBELOW", (0, 0), (-1, 0), 1, color),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ]))
+        t.setStyle(
+            TableStyle(
+                [
+                    ("LINEBELOW", (0, 0), (-1, 0), 1, color),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
         return t
 
-    def _render_compact(
-        self, items: list[dict], _template: TemplateDef, styles: dict
-    ) -> Paragraph:
+    def _render_compact(self, items: list[dict], _template: TemplateDef, styles: dict) -> Paragraph:
         names = [item.get("name", "") for item in items if item.get("name")]
         return Paragraph(", ".join(names), styles["body"])
 
@@ -187,9 +195,7 @@ class PdfRenderer(DocumentRenderer):
                 parts.append(desc)
         return Paragraph("; ".join(parts), styles["body"])
 
-    def _render_detailed(
-        self, items: list[dict], _template: TemplateDef, styles: dict
-    ) -> list:
+    def _render_detailed(self, items: list[dict], _template: TemplateDef, styles: dict) -> list:
         result: list = []
         for item in items:
             name = item.get("name", "")
@@ -237,9 +243,7 @@ class PdfRenderer(DocumentRenderer):
             result.append(Spacer(1, 4))
         return result
 
-    def _get_section_items(
-        self, context: RenderContext, section_name: str
-    ) -> list[dict]:
+    def _get_section_items(self, context: RenderContext, section_name: str) -> list[dict]:
         if context.tailored_sections and section_name in context.tailored_sections:
             text = context.tailored_sections[section_name]
             return [{"name": section_name, "description": text}]
@@ -319,29 +323,50 @@ class PdfRenderer(DocumentRenderer):
         lh = template.spacing.line_height
         return {
             "heading": ParagraphStyle(
-                "Heading", fontName=ff, fontSize=hs,
-                leading=hs * 1.3, textColor=HexColor(hc),
-                alignment=TA_CENTER, spaceAfter=4,
+                "Heading",
+                fontName=ff,
+                fontSize=hs,
+                leading=hs * 1.3,
+                textColor=HexColor(hc),
+                alignment=TA_CENTER,
+                spaceAfter=4,
             ),
             "subheading": ParagraphStyle(
-                "Subheading", fontName=ff, fontSize=ss,
-                leading=ss * 1.3, textColor=HexColor(sc),
-                alignment=TA_LEFT, spaceAfter=2,
+                "Subheading",
+                fontName=ff,
+                fontSize=ss,
+                leading=ss * 1.3,
+                textColor=HexColor(sc),
+                alignment=TA_LEFT,
+                spaceAfter=2,
             ),
             "section_title": ParagraphStyle(
-                "SectionTitle", fontName=ff, fontSize=ss + 1,
-                leading=(ss + 1) * 1.3, textColor=HexColor(hc),
-                alignment=TA_LEFT, spaceBefore=4, spaceAfter=2,
+                "SectionTitle",
+                fontName=ff,
+                fontSize=ss + 1,
+                leading=(ss + 1) * 1.3,
+                textColor=HexColor(hc),
+                alignment=TA_LEFT,
+                spaceBefore=4,
+                spaceAfter=2,
             ),
             "body": ParagraphStyle(
-                "Body", fontName=ff, fontSize=bs,
-                leading=bs * lh, textColor=HexColor(bc),
-                alignment=TA_LEFT, spaceAfter=4,
+                "Body",
+                fontName=ff,
+                fontSize=bs,
+                leading=bs * lh,
+                textColor=HexColor(bc),
+                alignment=TA_LEFT,
+                spaceAfter=4,
             ),
             "body_small": ParagraphStyle(
-                "BodySmall", fontName=ff, fontSize=max(bs - 1, 8),
-                leading=max(bs - 1, 8) * 1.2, textColor=HexColor(bc),
-                alignment=TA_LEFT, spaceAfter=2,
+                "BodySmall",
+                fontName=ff,
+                fontSize=max(bs - 1, 8),
+                leading=max(bs - 1, 8) * 1.2,
+                textColor=HexColor(bc),
+                alignment=TA_LEFT,
+                spaceAfter=2,
             ),
         }
 

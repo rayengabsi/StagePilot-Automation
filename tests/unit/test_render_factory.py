@@ -61,9 +61,7 @@ def test_factory_render_cover_letter(tmp_path: Path) -> None:
         candidate_name="Jane Doe",
     )
     factory = RendererFactory()
-    result = factory.render_cover_letter(
-        profile, cover_data, tmp_path / "cover.pdf"
-    )
+    result = factory.render_cover_letter(profile, cover_data, tmp_path / "cover.pdf")
     assert result.path.exists()
     assert result.format == "pdf"
 

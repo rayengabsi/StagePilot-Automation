@@ -169,36 +169,54 @@ def _build_parser() -> argparse.ArgumentParser:
 
     r_resume = render_subparsers.add_parser("resume", help="Render a resume.")
     r_resume.add_argument(
-        "--template", type=str, default=None,
+        "--template",
+        type=str,
+        default=None,
         help="Template name (modern, executive, minimal, classic, professional).",
     )
     r_resume.add_argument(
-        "--theme", type=str, default=None,
+        "--theme",
+        type=str,
+        default=None,
         help="Theme name from config/theme.toml.",
     )
     r_resume.add_argument(
-        "--format", type=str, default="pdf",
-        choices=["pdf", "docx", "all"], help="Output format.",
+        "--format",
+        type=str,
+        default="pdf",
+        choices=["pdf", "docx", "all"],
+        help="Output format.",
     )
     r_resume.add_argument(
-        "--output", type=str, default=None,
+        "--output",
+        type=str,
+        default=None,
         help="Output file path (default: output/resume.pdf).",
     )
     r_resume.set_defaults(handler=_handle_render_resume)
 
     r_cover = render_subparsers.add_parser(
-        "cover-letter", help="Render a cover letter.",
+        "cover-letter",
+        help="Render a cover letter.",
     )
     r_cover.add_argument(
-        "--template", type=str, default=None, help="Template name.",
+        "--template",
+        type=str,
+        default=None,
+        help="Template name.",
     )
     r_cover.add_argument("--theme", type=str, default=None, help="Theme name.")
     r_cover.add_argument(
-        "--format", type=str, default="pdf",
-        choices=["pdf", "docx", "all"], help="Output format.",
+        "--format",
+        type=str,
+        default="pdf",
+        choices=["pdf", "docx", "all"],
+        help="Output format.",
     )
     r_cover.add_argument(
-        "--output", type=str, default=None,
+        "--output",
+        type=str,
+        default=None,
         help="Output file path (default: output/cover_letter.pdf).",
     )
     r_cover.set_defaults(handler=_handle_render_cover_letter)
@@ -646,17 +664,23 @@ def _handle_render_resume(args: argparse.Namespace, settings: Settings) -> int:
     formats = ["pdf", "docx"] if fmt == "all" else [fmt]
     factory = RendererFactory()
     results = factory.render_resume_all(
-        profile, output_dir,
+        profile,
+        output_dir,
         template_name=args.template,
         formats=formats,
     )
     for r in results:
-        print(json.dumps({
-            "path": str(r.path),
-            "format": r.format,
-            "sections_rendered": r.sections_rendered,
-            "template": r.template_used,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "path": str(r.path),
+                    "format": r.format,
+                    "sections_rendered": r.sections_rendered,
+                    "template": r.template_used,
+                },
+                indent=2,
+            )
+        )
     return 0
 
 
@@ -699,22 +723,27 @@ def _handle_render_cover_letter(args: argparse.Namespace, settings: Settings) ->
     formats = ["pdf", "docx"] if fmt == "all" else [fmt]
     factory = RendererFactory()
     results = factory.render_cover_letter_all(
-        profile, cover_data, output_dir,
+        profile,
+        cover_data,
+        output_dir,
         template_name=args.template,
         formats=formats,
     )
     for r in results:
-        print(json.dumps({
-            "path": str(r.path),
-            "format": r.format,
-            "template": r.template_used,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "path": str(r.path),
+                    "format": r.format,
+                    "template": r.template_used,
+                },
+                indent=2,
+            )
+        )
     return 0
 
 
-def _handle_render_templates(
-    _args: argparse.Namespace, _settings: Settings
-) -> int:
+def _handle_render_templates(_args: argparse.Namespace, _settings: Settings) -> int:
     """Handle render templates command."""
     from app.rendering.template_loader import load_all_templates
 
@@ -723,9 +752,7 @@ def _handle_render_templates(
     return 0
 
 
-def _handle_render_themes(
-    _args: argparse.Namespace, _settings: Settings
-) -> int:
+def _handle_render_themes(_args: argparse.Namespace, _settings: Settings) -> int:
     """Handle render themes command."""
     from app.rendering.theme_loader import load_default_theme
 
@@ -749,21 +776,26 @@ def _handle_render_preview(args: argparse.Namespace, _settings: Settings) -> int
     theme_loader = ThemeLoader()
     theme = theme_loader.load()
     effective = theme.apply_to(template)
-    print(json.dumps({
-        "template": effective.name,
-        "theme": theme.name,
-        "page_size": effective.page_size,
-        "columns": effective.columns,
-        "font_family": effective.fonts.family,
-        "section_order": list(effective.section_order),
-        "colors": {
-            "primary": effective.colors.primary,
-            "secondary": effective.colors.secondary,
-            "accent": effective.colors.accent,
-        },
-        "margins": {
-            "top": effective.spacing.page_margin_top,
-            "left": effective.spacing.page_margin_left,
-        },
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "template": effective.name,
+                "theme": theme.name,
+                "page_size": effective.page_size,
+                "columns": effective.columns,
+                "font_family": effective.fonts.family,
+                "section_order": list(effective.section_order),
+                "colors": {
+                    "primary": effective.colors.primary,
+                    "secondary": effective.colors.secondary,
+                    "accent": effective.colors.accent,
+                },
+                "margins": {
+                    "top": effective.spacing.page_margin_top,
+                    "left": effective.spacing.page_margin_left,
+                },
+            },
+            indent=2,
+        )
+    )
     return 0

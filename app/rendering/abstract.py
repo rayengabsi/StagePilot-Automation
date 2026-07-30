@@ -16,8 +16,7 @@ class DocumentRenderer(ABC):
         template: TemplateDef,
         theme: ThemeDef,
         output_path: Path,
-    ) -> DocumentOutput:
-        ...
+    ) -> DocumentOutput: ...
 
     @abstractmethod
     def render_cover_letter(
@@ -27,5 +26,4 @@ class DocumentRenderer(ABC):
         template: TemplateDef,
         theme: ThemeDef,
         output_path: Path,
-    ) -> DocumentOutput:
-        ...
+    ) -> DocumentOutput: ...

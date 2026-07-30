@@ -103,11 +103,13 @@ class TemplateLoader:
                 tpl_path = child / "template.json"
                 if tpl_path.exists():
                     raw = json.loads(tpl_path.read_text(encoding="utf-8"))
-                    result.append({
-                        "name": raw.get("name", child.name),
-                        "version": raw.get("version", "unknown"),
-                        "description": raw.get("description", ""),
-                    })
+                    result.append(
+                        {
+                            "name": raw.get("name", child.name),
+                            "version": raw.get("version", "unknown"),
+                            "description": raw.get("description", ""),
+                        }
+                    )
         return result
 
     def _parse(self, raw: dict) -> TemplateDef:
@@ -172,10 +174,20 @@ class TemplateLoader:
                 alignment=footer_raw.get("alignment", "center"),
                 show_page_number=footer_raw.get("show_page_number", True),
             ),
-            section_order=tuple(raw.get("section_order", [
-                "summary", "skills", "experience", "education",
-                "projects", "languages", "certifications",
-            ])),
+            section_order=tuple(
+                raw.get(
+                    "section_order",
+                    [
+                        "summary",
+                        "skills",
+                        "experience",
+                        "education",
+                        "projects",
+                        "languages",
+                        "certifications",
+                    ],
+                )
+            ),
             page_size=raw.get("page_size", "A4"),
             columns=int(raw.get("columns", 1)),
             show_header=bool(raw.get("show_header", True)),

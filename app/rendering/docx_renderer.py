@@ -70,9 +70,12 @@ class DocxRenderer(DocumentRenderer):
 
         doc.save(str(output_path))
         return DocumentOutput(
-            path=output_path, format="docx",
-            page_count=1, sections_rendered=sections_rendered,
-            template_used=effective.name, theme_used=theme.name,
+            path=output_path,
+            format="docx",
+            page_count=1,
+            sections_rendered=sections_rendered,
+            template_used=effective.name,
+            theme_used=theme.name,
         )
 
     def render_cover_letter(
@@ -114,9 +117,12 @@ class DocxRenderer(DocumentRenderer):
 
         doc.save(str(output_path))
         return DocumentOutput(
-            path=output_path, format="docx",
-            page_count=1, sections_rendered=1,
-            template_used=effective.name, theme_used=theme.name,
+            path=output_path,
+            format="docx",
+            page_count=1,
+            sections_rendered=1,
+            template_used=effective.name,
+            theme_used=theme.name,
         )
 
     def _set_margins(self, doc: Document, template: TemplateDef) -> None:
@@ -127,9 +133,7 @@ class DocxRenderer(DocumentRenderer):
             section.left_margin = Inches(template.spacing.page_margin_left * factor)
             section.right_margin = Inches(template.spacing.page_margin_right * factor)
 
-    def _render_compact_docx(
-        self, doc: Document, items: list[dict], template: TemplateDef
-    ) -> None:
+    def _render_compact_docx(self, doc: Document, items: list[dict], template: TemplateDef) -> None:
         names = [item.get("name", "") for item in items if item.get("name")]
         if names:
             p = doc.add_paragraph(", ".join(names))
@@ -202,9 +206,7 @@ class DocxRenderer(DocumentRenderer):
             parts.append(f"{start} - Present")
         return parts
 
-    def _get_section_items(
-        self, context: RenderContext, section_name: str
-    ) -> list[dict]:
+    def _get_section_items(self, context: RenderContext, section_name: str) -> list[dict]:
         if context.tailored_sections and section_name in context.tailored_sections:
             text = context.tailored_sections[section_name]
             return [{"name": section_name, "description": text}]
