@@ -11,10 +11,11 @@ AI-powered, human-in-the-loop internship automation platform.
 - Phase 4 — Recommendation Engine: hard-rule gating, 8-category similarity scoring, weighted aggregation, ranking, feedback — complete.
 - Phase 5 — AI Intelligence Layer: provider abstraction (ABC + Gemini), 4 versioned prompt templates, AI orchestrator, 4 services (explanation, resume tailoring, cover letter, email), deterministic output validation, token tracking — complete.
 - Phase 6 — Resume Rendering & Document Generation Engine: data-driven template system (5 templates), theme system with TOML overrides, PDF generation (reportlab) with selectable text and ATS-friendly formatting, DOCX generation (python-docx) with heading hierarchy, CLI render subcommands — complete.
+- Phase 7 — Human Approval Platform: ApplicationPackage entity with immutable snapshots, 8-state approval state machine, ApprovalService (UI-independent, owns all business logic), queue engine with 5 strategies, audit log, snapshot engine, Telegram bot with inline buttons (thin adapter, zero business logic), CLI approval subcommands, 4 new database tables, 63 tests — complete.
 
 ## Architecture
 
-The project is a modular monolith using Clean Architecture and Domain-Driven Design boundaries. The database contains 16+ tables spanning jobs (Phase 1–2), job matching (Phase 2), profiles (Phase 3), recommendations & feedback (Phase 4), and AI token usage (Phase 5). The rendering engine (Phase 6) operates from in-memory profile data and does not require new database tables.
+The project is a modular monolith using Clean Architecture and Domain-Driven Design boundaries. The database contains 20+ tables spanning jobs (Phase 1–2), job matching (Phase 2), profiles (Phase 3), recommendations & feedback (Phase 4), AI token usage (Phase 5), and approval system (Phase 7). The rendering engine (Phase 6) operates from in-memory profile data.
 
 See [`docs/architecture.md`](docs/architecture.md).
 
@@ -152,6 +153,39 @@ Generated documents go to `output/resume.pdf`, `output/resume.docx`, `output/cov
 
 Five templates are available: `modern`, `executive`, `minimal`, `classic`, `professional`. Templates are pure JSON — adding a new template requires zero code changes.
 
+### Human Approval Platform
+
+Phase 7 guarantees no application is submitted without explicit human approval:
+
+```bash
+# View the approval queue
+uv run stagepilot approval queue
+
+# List all packages
+uv run stagepilot approval list
+
+# Approve a package
+uv run stagepilot approval approve 1 --actor "admin" --comment "Looks great"
+
+# Reject a package
+uv run stagepilot approval reject 2 --actor "admin" --comment "Wrong field"
+
+# Request revision
+uv run stagepilot approval revise 3 --actor "admin" --comment "Update resume"
+
+# Skip a package
+uv run stagepilot approval skip 4
+
+# Archive a package
+uv run stagepilot approval archive 5
+
+# View package history
+uv run stagepilot approval history 1
+
+# Run the Telegram bot
+uv run stagepilot telegram run
+```
+
 ### AI-Powered Features
 
 Phase 5 adds optional AI features for generating human-readable communication from structured recommendation data:
@@ -229,29 +263,42 @@ uv run alembic upgrade head
 ```
 app/
 ├── cli/
-│   └── commands.py                       # All CLI commands (discover, sources, profile, recommend, feedback, ai)
+│   └── commands.py                       # All CLI commands (+ approval + telegram)
 ├── config/
 │   ├── ai.toml                           # Phase 5: AI provider/feature config
 │   ├── ai_config.py                      # Phase 5: AIConfig frozen dataclass + loader
+│   ├── approval.toml                     # Phase 7: Queue/snapshot config
+│   ├── approval_config.py                # Phase 7: ApprovalConfig loader
 │   ├── logging.py
 │   ├── matching.py                       # Phase 4: MatchingConfig frozen dataclass + loader
 │   ├── matching.toml                     # Phase 4: scoring weights, thresholds, hard-rule toggles
-│   └── settings.py                       # Settings + FilterRules model + API keys
+│   ├── settings.py                       # Settings + FilterRules model + API keys
+│   ├── telegram_config.py                # Phase 7: TelegramConfig loader
+│   └── telegram.toml                     # Phase 7: Telegram bot config
 ├── db/
 │   ├── base.py
 │   ├── models/
 │   │   ├── ai_usage.py                   # Phase 5: TokenUsageRecord (ai_token_usage)
+│   │   ├── approval.py                   # Phase 7: 4 ORM models
 │   │   ├── jobs.py                       # Phase 1: raw_jobs, jobs
 │   │   ├── matching.py                   # Phase 2: job_matches
 │   │   ├── profile.py                    # Phase 3: 9 ORM models
 │   │   ├── recommendation.py             # Phase 4: RecommendationRecord + FeedbackRecord
 │   │   └── __init__.py
+│   ├── repositories/
+│   │   └── approval.py                   # Phase 7: 4 repositories
 │   └── session.py
 ├── domain/
 │   ├── ai/                               # Phase 5: AI entities, enums, errors
 │   │   ├── entities.py
 │   │   ├── enums.py
 │   │   └── errors.py
+│   ├── approval/                         # Phase 7: Approval domain
+│   │   ├── __init__.py
+│   │   ├── entities.py                   # ApplicationPackage, ApprovalEvent, ApprovalComment
+│   │   ├── enums.py                      # ApprovalState, QueueStrategy, VALID_TRANSITIONS
+│   │   ├── errors.py                     # 9 error classes
+│   │   └── package.py                    # Snapshot builder, hash, factory
 │   ├── master_profile/                   # Phase 3: MasterProfile entities, enums, errors
 │   │   ├── entities.py
 │   │   ├── enums.py
@@ -272,9 +319,15 @@ app/
 │   ├── job_sources/
 │   │   ├── registry.py
 │   │   └── rss_feed_connector.py
-│   └── parsers/                          # Phase 3: ProfileParser ABC + PDF parser
-│       ├── abstract.py                   # ProfileParser (ABC)
-│       └── pdf_parser.py                 # PDFParser (pdfplumber)
+│   ├── parsers/                          # Phase 3: ProfileParser ABC + PDF parser
+│   │   ├── abstract.py                   # ProfileParser (ABC)
+│   │   └── pdf_parser.py                 # PDFParser (pdfplumber)
+│   └── telegram/                         # Phase 7: Telegram client (thin adapter)
+│       ├── __init__.py
+│       ├── auth.py                       # TelegramAuth (authorization)
+│       ├── bot.py                        # Bot runner
+│       ├── handlers.py                   # Command + callback handlers
+│       └── messages.py                   # Message formatting
 ├── rendering/                            # Phase 6: Document generation engine
 │   ├── __init__.py
 │   ├── abstract.py                       # DocumentRenderer (ABC)
@@ -289,6 +342,7 @@ app/
 │   └── theme_loader.py                   # ThemeDef + loader (config/theme.toml)
 └── services/
     ├── ai_orchestrator.py                # Phase 5: AI pipeline orchestrator
+    ├── approval_service.py               # Phase 7: ALL approval business logic (UI-independent)
     ├── cover_letter_service.py           # Phase 5: cover letter generation
     ├── discovery_service.py
     ├── duplicate_detection_service.py
@@ -303,8 +357,10 @@ app/
     ├── profile_service.py                # Phase 3: import, export, versioning
     ├── profile_validator.py              # Phase 3: validation + completeness scoring
     ├── prompt_service.py                 # Phase 5: prompt template loading/rendering
+    ├── queue_service.py                  # Phase 7: Queue engine (5 strategies)
     ├── recommendation_service.py         # Phase 4: recommendation pipeline orchestration
     ├── resume_tailor_service.py          # Phase 5: resume tailoring
+    ├── snapshot_service.py               # Phase 7: Immutable snapshot creation/validation
     └── token_tracker.py                  # Phase 5: AI token usage tracking
 ```
 

@@ -1,0 +1,15 @@
+[bot]
+# token = "YOUR_BOT_TOKEN"
+allowed_chat_ids = []
+admin_users = []
+
+[formatting]
+max_message_length = 4096
+show_queue_position = true
+show_score = true
+show_skills = true
+show_documents = true
+
+[errors]
+delete_message_on_timeout = true
+timeout_seconds = 30

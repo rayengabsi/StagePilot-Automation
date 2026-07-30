@@ -13,6 +13,7 @@ from app.infrastructure.job_sources.registry import ConnectorRegistry
 from app.infrastructure.job_sources.rss_feed_connector import RssFeedConnector
 from app.infrastructure.parsers.pdf_parser import PDFParser
 from app.services.ai_orchestrator import AIOrchestrator
+from app.services.approval_service import ApprovalService
 from app.services.cover_letter_service import CoverLetterService
 from app.services.discovery_service import DiscoveryService
 from app.services.duplicate_detection_service import DuplicateDetectionService
@@ -232,7 +233,160 @@ def _build_parser() -> argparse.ArgumentParser:
     r_preview.add_argument("--theme", type=str, default=None, help="Theme name.")
     r_preview.set_defaults(handler=_handle_render_preview)
 
+    approval_parser = subparsers.add_parser("approval", help="Manage the approval queue.")
+    approval_subparsers = approval_parser.add_subparsers(dest="approval_command")
+
+    a_queue_parser = approval_subparsers.add_parser("queue", help="Show the approval queue.")
+    a_queue_parser.add_argument(
+        "--limit", type=int, default=10, help="Number of items (default: 10)."
+    )
+    a_queue_parser.add_argument("--offset", type=int, default=0, help="Offset (default: 0).")
+    a_queue_parser.set_defaults(handler=_handle_approval_queue)
+
+    a_list_parser = approval_subparsers.add_parser("list", help="List all packages.")
+    a_list_parser.add_argument("--status", type=str, default=None, help="Filter by status.")
+    a_list_parser.add_argument("--limit", type=int, default=50, help="Limit (default: 50).")
+    a_list_parser.set_defaults(handler=_handle_approval_list)
+
+    a_approve_parser = approval_subparsers.add_parser("approve", help="Approve a package.")
+    a_approve_parser.add_argument("package_id", type=int, help="Package ID.")
+    a_approve_parser.add_argument("--actor", type=str, default="cli", help="Actor name.")
+    a_approve_parser.add_argument("--comment", type=str, default="", help="Approval comment.")
+    a_approve_parser.set_defaults(handler=_handle_approval_approve)
+
+    a_reject_parser = approval_subparsers.add_parser("reject", help="Reject a package.")
+    a_reject_parser.add_argument("package_id", type=int, help="Package ID.")
+    a_reject_parser.add_argument("--actor", type=str, default="cli", help="Actor name.")
+    a_reject_parser.add_argument("--comment", type=str, default="", help="Rejection comment.")
+    a_reject_parser.set_defaults(handler=_handle_approval_reject)
+
+    a_revise_parser = approval_subparsers.add_parser(
+        "revise", help="Request revision for a package."
+    )
+    a_revise_parser.add_argument("package_id", type=int, help="Package ID.")
+    a_revise_parser.add_argument("--actor", type=str, default="cli", help="Actor name.")
+    a_revise_parser.add_argument("--comment", type=str, default="", help="Revision comment.")
+    a_revise_parser.set_defaults(handler=_handle_approval_revise)
+
+    a_skip_parser = approval_subparsers.add_parser("skip", help="Skip a package.")
+    a_skip_parser.add_argument("package_id", type=int, help="Package ID.")
+    a_skip_parser.add_argument("--actor", type=str, default="cli", help="Actor name.")
+    a_skip_parser.add_argument("--comment", type=str, default="", help="Skip comment.")
+    a_skip_parser.set_defaults(handler=_handle_approval_skip)
+
+    a_archive_parser = approval_subparsers.add_parser("archive", help="Archive a package.")
+    a_archive_parser.add_argument("package_id", type=int, help="Package ID.")
+    a_archive_parser.add_argument("--actor", type=str, default="cli", help="Actor name.")
+    a_archive_parser.add_argument("--comment", type=str, default="", help="Archive comment.")
+    a_archive_parser.set_defaults(handler=_handle_approval_archive)
+
+    a_history_parser = approval_subparsers.add_parser("history", help="Show history for a package.")
+    a_history_parser.add_argument("package_id", type=int, help="Package ID.")
+    a_history_parser.set_defaults(handler=_handle_approval_history)
+
+    telegram_parser = subparsers.add_parser("telegram", help="Telegram integration.")
+    telegram_subparsers = telegram_parser.add_subparsers(dest="telegram_command")
+
+    t_run = telegram_subparsers.add_parser("run", help="Run the Telegram bot.")
+    t_run.set_defaults(handler=_handle_telegram_run)
+
     return parser
+
+
+def _handle_approval_queue(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApprovalService(session=session)
+        packages = svc.peek_queue(limit=args.limit, offset=args.offset)
+        count = svc.queue_count()
+        data = {
+            "queue_size": count,
+            "packages": [p.to_dict() for p in packages],
+        }
+    print(json.dumps(data, indent=2, default=str))
+    return 0
+
+
+def _handle_approval_list(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApprovalService(session=session)
+        packages = svc.list_packages(status=args.status, limit=args.limit)
+        data = [p.to_dict() for p in packages]
+    print(json.dumps(data, indent=2, default=str))
+    return 0
+
+
+def _handle_approval_approve(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApprovalService(session=session)
+        updated = svc.approve(package_id=args.package_id, actor=args.actor, comment=args.comment)
+    print(json.dumps(updated.to_dict(), indent=2, default=str))
+    return 0
+
+
+def _handle_approval_reject(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApprovalService(session=session)
+        updated = svc.reject(package_id=args.package_id, actor=args.actor, comment=args.comment)
+    print(json.dumps(updated.to_dict(), indent=2, default=str))
+    return 0
+
+
+def _handle_approval_revise(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApprovalService(session=session)
+        updated = svc.request_revision(
+            package_id=args.package_id, actor=args.actor, comment=args.comment
+        )
+    print(json.dumps(updated.to_dict(), indent=2, default=str))
+    return 0
+
+
+def _handle_approval_skip(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApprovalService(session=session)
+        updated = svc.skip(package_id=args.package_id, actor=args.actor, comment=args.comment)
+    print(json.dumps(updated.to_dict(), indent=2, default=str))
+    return 0
+
+
+def _handle_approval_archive(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApprovalService(session=session)
+        updated = svc.archive(package_id=args.package_id, actor=args.actor, comment=args.comment)
+    print(json.dumps(updated.to_dict(), indent=2, default=str))
+    return 0
+
+
+def _handle_approval_history(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApprovalService(session=session)
+        events = svc.get_history(args.package_id)
+        data = [e.to_dict() for e in events]
+    print(json.dumps(data, indent=2, default=str))
+    return 0
+
+
+def _handle_telegram_run(_args: argparse.Namespace, settings: Settings) -> int:
+    from app.infrastructure.telegram.bot import run_telegram_bot
+
+    run_telegram_bot(settings)
+    return 0
 
 
 def _handle_discover(args: argparse.Namespace, settings: Settings) -> int:

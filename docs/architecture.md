@@ -404,3 +404,81 @@ stagepilot render preview [--template]
 - All AI outputs must pass deterministic validation
 - All AI calls must be tracked in `ai_token_usage`
 - All prompts must be versioned `.md` files
+
+## Phase 7 — Human Approval Platform
+
+### Architecture
+
+```
+Application Package (snapshot + docs + hash)
+        │
+        v
+   Approval Queue
+        │
+        v
+  ApprovalService  ←── Telegram Bot (thin adapter)
+        │                    Web UI (future)
+        │                    Slack/Discord (future)
+        v
+  ┌──────────────┐
+  │  State Machine  │
+  │  8 states        │
+  │  Validated       │
+  │  transitions     │
+  └──────────────┘
+        │
+        v
+  ┌──────────────────────────────────────┐
+  │  Database                            │
+  │  ├ application_packages              │
+  │  ├ approval_queue                    │
+  │  ├ approval_events (audit log)       │
+  │  └ approval_comments                 │
+  └──────────────────────────────────────┘
+```
+
+### Key Design Decisions
+
+- **ApprovalService owns ALL business logic** — Telegram, CLI, and future UIs are thin adapters
+- **State machine** with 8 states and validated transitions — invalid transitions are impossible
+- **Immutable snapshots** — every package entering the queue captures full state (recommendation, profile, documents, explanation, template, theme, hash)
+- **Queue engine** supports 5 strategies: FIFO, highest score, deadline priority, newest first, oldest first
+- **Audit log** records every action (queued, viewed, approved, rejected, skipped, revised, archived) with timestamp, actor, and comment
+- **Telegram is a thin adapter** — zero business logic, only calls ApprovalService
+
+### State Machine
+
+```
+NEW → QUEUED → UNDER_REVIEW → APPROVED → ARCHIVED
+                              → REJECTED → QUEUED / ARCHIVED
+                              → REVISION_REQUESTED → QUEUED / ARCHIVED
+                    → SKIPPED → QUEUED / ARCHIVED
+         → ARCHIVED
+```
+
+### Database Tables (4 new)
+
+| Table | Purpose |
+|-------|---------|
+| `application_packages` | Full application state with immutable snapshot |
+| `approval_queue` | Queue positioning (one-to-one with packages) |
+| `approval_events` | Audit log |
+| `approval_comments` | Reviewer comments |
+
+### Telegram Commands
+
+`/start`, `/help`, `/queue`, `/view`, `/open`, `/approve`, `/reject`, `/revise`, `/skip`, `/archive`, `/history`, `/status`
+
+### CLI
+
+```
+stagepilot approval queue
+stagepilot approval list
+stagepilot approval approve <id>
+stagepilot approval reject <id>
+stagepilot approval revise <id>
+stagepilot approval skip <id>
+stagepilot approval archive <id>
+stagepilot approval history <id>
+stagepilot telegram run
+```

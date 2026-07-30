@@ -1,0 +1,19 @@
+[queue]
+strategy = "fifo"
+limit = 50
+approval_timeout_hours = 48
+auto_archive_days = 30
+
+[priority]
+default = 0
+high = 10
+urgent = 100
+
+[snapshot]
+config_version = "1.0.0"
+
+[notifications]
+enabled = true
+on_approve = true
+on_reject = true
+on_revision = true
