@@ -1,7 +1,7 @@
 [bot]
-# token = "YOUR_BOT_TOKEN"
-allowed_chat_ids = []
-admin_users = []
+token = "8828143955:AAHc1zgnQoLgmcKtGRSy7-lOxrmVTdx00V0"
+allowed_chat_ids = [5165039866]
+admin_users = [5165039866]
 
 [formatting]
 max_message_length = 4096

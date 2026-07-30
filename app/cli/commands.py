@@ -290,6 +290,31 @@ def _build_parser() -> argparse.ArgumentParser:
     t_run = telegram_subparsers.add_parser("run", help="Run the Telegram bot.")
     t_run.set_defaults(handler=_handle_telegram_run)
 
+    pipeline_parser = subparsers.add_parser("pipeline", help="Run the end-to-end pipeline.")
+    pipeline_subparsers = pipeline_parser.add_subparsers(dest="pipeline_command")
+
+    p_run = pipeline_subparsers.add_parser("run", help="Run the full pipeline (discovery → queue).")
+    p_run.set_defaults(handler=_handle_pipeline_run)
+
+    p_once = pipeline_subparsers.add_parser("once", help="Run the pipeline once (alias for run).")
+    p_once.set_defaults(handler=_handle_pipeline_once)
+
+    scheduler_parser = subparsers.add_parser("scheduler", help="Manage the pipeline scheduler.")
+    scheduler_subparsers = scheduler_parser.add_subparsers(dest="scheduler_command")
+
+    s_run = scheduler_subparsers.add_parser("run", help="Run the pipeline once via scheduler.")
+    s_run.set_defaults(handler=_handle_scheduler_run)
+
+    s_start = scheduler_subparsers.add_parser("start", help="Start the scheduler loop (blocking).")
+    s_start.add_argument(
+        "--interval",
+        type=str,
+        default="daily",
+        choices=["hourly", "every_6_hours", "daily"],
+        help="Run interval (default: daily).",
+    )
+    s_start.set_defaults(handler=_handle_scheduler_start)
+
     return parser
 
 
@@ -386,6 +411,61 @@ def _handle_telegram_run(_args: argparse.Namespace, settings: Settings) -> int:
     from app.infrastructure.telegram.bot import run_telegram_bot
 
     run_telegram_bot(settings)
+    return 0
+
+
+def _handle_pipeline_run(args: argparse.Namespace, settings: Settings) -> int:
+    return _execute_pipeline(args, settings)
+
+
+def _handle_pipeline_once(args: argparse.Namespace, settings: Settings) -> int:
+    return _execute_pipeline(args, settings)
+
+
+def _execute_pipeline(_args: argparse.Namespace, settings: Settings) -> int:
+    from app.services.pipeline_orchestrator import PipelineOrchestrator
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        orchestrator = PipelineOrchestrator(session=session, settings=settings)
+        result = orchestrator.run()
+        summary = {
+            "run_id": result.run_id,
+            "jobs_found": result.jobs_found,
+            "duplicates_removed": result.duplicates_removed,
+            "matched": result.matched,
+            "below_threshold": result.below_threshold,
+            "ai_completed": result.ai_completed,
+            "ai_failed": result.ai_failed,
+            "rendering_completed": result.rendering_completed,
+            "rendering_failed": result.rendering_failed,
+            "packages_created": result.packages_created,
+            "queued": result.queued,
+            "telegram_sent": result.telegram_sent,
+            "duration_seconds": round(result.duration_seconds, 2),
+            "errors": result.errors[:10] if result.errors else [],
+        }
+    print(json.dumps(summary, indent=2, default=str))
+    return 0
+
+
+def _handle_scheduler_run(_args: argparse.Namespace, settings: Settings) -> int:
+    from app.services.scheduler_service import SchedulerService
+
+    svc = SchedulerService(settings=settings)
+    result = svc.run_once()
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def _handle_scheduler_start(args: argparse.Namespace, settings: Settings) -> int:
+    from app.services.scheduler_service import ScheduleInterval, SchedulerService
+
+    interval_str = getattr(args, "interval", "daily")
+    interval = ScheduleInterval(interval_str)
+    svc = SchedulerService(settings=settings)
+    svc.start(interval)
     return 0
 
 

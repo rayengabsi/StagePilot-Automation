@@ -9,6 +9,7 @@ from app.db.models.approval import (
 )
 from app.db.models.jobs import Job, JobSource, RawJob
 from app.db.models.matching import JobMatch
+from app.db.models.pipeline import PipelineRunRecord
 from app.db.models.profile import (
     CertificationRecord,
     EducationRecord,
@@ -34,6 +35,7 @@ __all__ = [
     "JobMatch",
     "JobSource",
     "LanguageRecord",
+    "PipelineRunRecord",
     "PreferenceRecord",
     "Profile",
     "ProfileVersionRecord",
