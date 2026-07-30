@@ -563,6 +563,7 @@ class MatchingConfig:
     @classmethod
     def load(cls, path: Path = MATCHING_CONFIG_PATH) -> MatchingConfig: ...
 
+
 @lru_cache(maxsize=1)
 def get_matching_config(path: Path = MATCHING_CONFIG_PATH) -> MatchingConfig: ...
 ```

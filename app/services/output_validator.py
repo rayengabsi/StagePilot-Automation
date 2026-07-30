@@ -65,6 +65,5 @@ class OutputValidator:
             match = pattern.search(text)
             if match:
                 raise ValidationError(
-                    f"AI output contains potential prompt injection pattern: "
-                    f"'{match.group()[:60]}'"
+                    f"AI output contains potential prompt injection pattern: '{match.group()[:60]}'"
                 )

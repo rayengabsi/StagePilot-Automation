@@ -121,9 +121,7 @@ class RecommendationService:
         records = query.all()
         return [self._record_to_domain(r) for r in records]
 
-    def _load_profile(
-        self, profile_id: int | None = None
-    ) -> tuple[ProfileRecord, MasterProfile]:
+    def _load_profile(self, profile_id: int | None = None) -> tuple[ProfileRecord, MasterProfile]:
         from app.services.profile_service import ProfileService
 
         ps = ProfileService
@@ -142,6 +140,7 @@ class RecommendationService:
             raise ProfileNotFoundError("Profile record not found")
         if domain_profile is None:
             from app.services.profile_service import ProfileService
+
             ps = ProfileService
             temp = ps(session=self._session, parser=None, normalizer=None, validator=None)
             domain_profile = temp.get_current_profile()
@@ -149,11 +148,7 @@ class RecommendationService:
         return profile_rec, domain_profile
 
     def _load_jobs(self) -> list[Job]:
-        subq = (
-            select(JobMatch.job_id)
-            .where(JobMatch.hard_filter_ok.is_(True))
-            .subquery()
-        )
+        subq = select(JobMatch.job_id).where(JobMatch.hard_filter_ok.is_(True)).subquery()
         stmt = select(Job).where(Job.id.in_(select(subq.c.job_id)))
         result = self._session.execute(stmt).scalars().all()
         return list(result)
@@ -195,9 +190,7 @@ class RecommendationService:
                 matched_preferences=tuple(r.matched_preferences_json or []),
                 unmatched_preferences=tuple(r.unmatched_preferences_json or []),
             ),
-            score_breakdown=ScoreBreakdown(
-                **(r.score_breakdown_json or {})
-            ),
+            score_breakdown=ScoreBreakdown(**(r.score_breakdown_json or {})),
             hard_rule_result=HardRuleResult(
                 passed=r.hard_rule_passed,
                 reasons=tuple(r.hard_rule_reasons or []),

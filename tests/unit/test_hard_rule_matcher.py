@@ -31,8 +31,14 @@ def _profile(prefs: Preference | None = None) -> MasterProfile:
 
 def _job(location: str = "", title: str = "", description: str = "", requirements: str = "") -> Job:
     return Job(
-        id=1, raw_job_id=1, source_id=1, title=title, company="Acme",
-        location=location, description=description, requirements=requirements,
+        id=1,
+        raw_job_id=1,
+        source_id=1,
+        title=title,
+        company="Acme",
+        location=location,
+        description=description,
+        requirements=requirements,
         normalized_hash="abc",
     )
 

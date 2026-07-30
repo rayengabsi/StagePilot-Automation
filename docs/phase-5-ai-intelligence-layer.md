@@ -119,6 +119,7 @@ class AIProviderName(StrEnum):
     CLAUDE = "claude"
     OLLAMA = "ollama"
 
+
 class AIFeature(StrEnum):
     EXPLANATION = "explanation"
     RESUME_TAILORING = "resume_tailoring"

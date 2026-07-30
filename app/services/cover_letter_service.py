@@ -25,10 +25,7 @@ class CoverLetterService:
             f"- {e.degree or ''} in {e.field_of_study or ''} at {e.institution}"
             for e in profile.education
         )
-        exp_lines = "\n".join(
-            f"- {e.title or ''} at {e.company or ''}"
-            for e in profile.experience
-        )
+        exp_lines = "\n".join(f"- {e.title or ''} at {e.company or ''}" for e in profile.experience)
 
         variables = {
             "candidate_name": profile.personal_info.full_name,

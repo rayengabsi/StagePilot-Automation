@@ -125,9 +125,7 @@ def test_cover_letter_service_returns_result(
     sample_recommendation: Recommendation,
 ) -> None:
     svc = CoverLetterService(orchestrator=mock_orchestrator)
-    result = svc.generate(
-        sample_profile, sample_recommendation, company="Acme", recipient="HR"
-    )
+    result = svc.generate(sample_profile, sample_recommendation, company="Acme", recipient="HR")
     assert isinstance(result, CoverLetter)
 
 
@@ -152,8 +150,11 @@ def test_email_draft_returns_result(mock_orchestrator: MagicMock) -> None:
     svc = EmailDraftService(orchestrator=mock_orchestrator)
     cover = CoverLetter(body="I am a great fit.", recipient_name="HR", company_name="Acme")
     result = svc.draft(
-        cover, company="Acme", job_title="Engineer",
-        recipient="HR", candidate_name="John",
+        cover,
+        company="Acme",
+        job_title="Engineer",
+        recipient="HR",
+        candidate_name="John",
     )
     assert isinstance(result, EmailDraft)
     assert "subject" in str(result.to_dict())

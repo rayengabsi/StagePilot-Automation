@@ -13,13 +13,19 @@ from app.domain.recommendation.errors import ProfileNotReadyError
 def _matching_config() -> MatchingConfig:
     return MatchingConfig(
         weights={
-            "skills": 35.0, "technologies": 20.0, "education": 10.0,
-            "experience": 10.0, "languages": 5.0, "projects": 5.0,
-            "location": 10.0, "preferences": 5.0,
+            "skills": 35.0,
+            "technologies": 20.0,
+            "education": 10.0,
+            "experience": 10.0,
+            "languages": 5.0,
+            "projects": 5.0,
+            "location": 10.0,
+            "preferences": 5.0,
         },
         thresholds={"recommendation_cutoff": 0.0},
         hard_rules={
-            "match_country": True, "match_work_mode": True,
+            "match_country": True,
+            "match_work_mode": True,
             "match_language": True,
         },
         fuzz_threshold=60,
@@ -100,9 +106,7 @@ def test_feedback_creates_record(
     mock_session.execute.return_value.scalars.return_value.all.return_value = []
 
     service = RecommendationService(session=mock_session, config=config)
-    fb = service.feedback(
-        recommendation_id=1, reason="wrong_country", comment="Bad location"
-    )
+    fb = service.feedback(recommendation_id=1, reason="wrong_country", comment="Bad location")
     assert fb.recommendation_id == 1
     assert fb.reason == FeedbackReason.WRONG_COUNTRY
     assert fb.comment == "Bad location"
@@ -123,8 +127,10 @@ def test_list_recommendations_empty(
 @patch("app.services.profile_service.ProfileService")
 @patch("app.services.recommendation_service.select")
 def test_recommend_with_jobs(
-    _mock_select: MagicMock, _mock_ps_cls: MagicMock,
-    mock_session: MagicMock, config: MatchingConfig
+    _mock_select: MagicMock,
+    _mock_ps_cls: MagicMock,
+    mock_session: MagicMock,
+    config: MatchingConfig,
 ) -> None:
     from app.services.recommendation_service import RecommendationService
 

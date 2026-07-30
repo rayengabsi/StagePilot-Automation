@@ -22,7 +22,9 @@ def upgrade() -> None:
     op.create_table(
         "recommendations",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("profile_id", sa.Integer(), sa.ForeignKey("profiles.id"), nullable=False, index=True),
+        sa.Column(
+            "profile_id", sa.Integer(), sa.ForeignKey("profiles.id"), nullable=False, index=True
+        ),
         sa.Column("job_id", sa.Integer(), sa.ForeignKey("jobs.id"), nullable=False, index=True),
         sa.Column("final_score", sa.Float(), nullable=False),
         sa.Column("ranking_position", sa.Integer(), nullable=False),

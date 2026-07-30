@@ -61,28 +61,34 @@ def test_list_prompts() -> None:
 
 def test_render_cover_letter() -> None:
     svc = PromptService()
-    result = svc.render("cover_letter", {
-        "candidate_name": "John Doe",
-        "job_title": "Engineer",
-        "company": "Acme",
-        "recipient": "Hiring Manager",
-        "matched_skills": "Python",
-        "education": "BSc CS",
-        "experience": "Software Developer",
-    })
+    result = svc.render(
+        "cover_letter",
+        {
+            "candidate_name": "John Doe",
+            "job_title": "Engineer",
+            "company": "Acme",
+            "recipient": "Hiring Manager",
+            "matched_skills": "Python",
+            "education": "BSc CS",
+            "experience": "Software Developer",
+        },
+    )
     assert "John Doe" in result
     assert "Acme" in result
 
 
 def test_render_email_application() -> None:
     svc = PromptService()
-    result = svc.render("email_application", {
-        "recipient": "HR",
-        "company": "Acme",
-        "job_title": "Engineer",
-        "cover_letter_body": "I am a good fit",
-        "candidate_name": "John",
-    })
+    result = svc.render(
+        "email_application",
+        {
+            "recipient": "HR",
+            "company": "Acme",
+            "job_title": "Engineer",
+            "cover_letter_body": "I am a good fit",
+            "candidate_name": "John",
+        },
+    )
     assert "Engineer" in result
     assert "Acme" in result
 

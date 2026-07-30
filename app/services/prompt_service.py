@@ -66,8 +66,12 @@ class PromptService:
                         version = line.split(":", 1)[1].strip()
                     if line.startswith("purpose:"):
                         purpose = line.split(":", 1)[1].strip()
-                result.append({
-                    "name": name, "file": filename,
-                    "version": version, "purpose": purpose,
-                })
+                result.append(
+                    {
+                        "name": name,
+                        "file": filename,
+                        "version": version,
+                        "purpose": purpose,
+                    }
+                )
         return result

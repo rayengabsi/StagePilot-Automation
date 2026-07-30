@@ -32,15 +32,14 @@ class ExplanationService:
             "final_score": f"{recommendation.final_score:.1f}",
             "matched_skills": ", ".join(recommendation.matched_detail.matched_skills) or "none",
             "missing_skills": ", ".join(recommendation.matched_detail.missing_skills) or "none",
-            "matched_technologies": ", ".join(
-                recommendation.matched_detail.matched_technologies
-            ) or "none",
-            "missing_technologies": ", ".join(
-                recommendation.matched_detail.missing_technologies
-            ) or "none",
+            "matched_technologies": ", ".join(recommendation.matched_detail.matched_technologies)
+            or "none",
+            "missing_technologies": ", ".join(recommendation.matched_detail.missing_technologies)
+            or "none",
             "score_breakdown": str(dict(recommendation.score_breakdown.to_dict())),
             "hard_rule_result": (
-                "passed" if recommendation.hard_rule_result.passed
+                "passed"
+                if recommendation.hard_rule_result.passed
                 else f"failed: {', '.join(recommendation.hard_rule_result.reasons)}"
             ),
         }

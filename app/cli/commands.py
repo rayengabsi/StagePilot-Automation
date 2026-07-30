@@ -98,9 +98,7 @@ def _build_parser() -> argparse.ArgumentParser:
     recommend_parser.add_argument(
         "--top", type=int, default=None, help="Limit to top N recommendations."
     )
-    recommend_parser.add_argument(
-        "--json", action="store_true", help="Output raw JSON."
-    )
+    recommend_parser.add_argument("--json", action="store_true", help="Output raw JSON.")
     recommend_parser.add_argument(
         "--list", action="store_true", help="List persisted recommendations instead of running."
     )
@@ -109,14 +107,18 @@ def _build_parser() -> argparse.ArgumentParser:
     feedback_parser = subparsers.add_parser(
         "feedback", help="Submit feedback for a recommendation."
     )
+    feedback_parser.add_argument("recommendation_id", type=int, help="Recommendation record ID.")
     feedback_parser.add_argument(
-        "recommendation_id", type=int, help="Recommendation record ID."
-    )
-    feedback_parser.add_argument(
-        "--reason", required=True,
+        "--reason",
+        required=True,
         choices=[
-            "wrong_country", "wrong_field", "wrong_technologies",
-            "too_senior", "salary", "not_remote", "other",
+            "wrong_country",
+            "wrong_field",
+            "wrong_technologies",
+            "too_senior",
+            "salary",
+            "not_remote",
+            "other",
         ],
         help="Feedback reason.",
     )
@@ -430,9 +432,7 @@ def _handle_ai_explain(args: argparse.Namespace, settings: Settings) -> int:
             msg = f"Recommendation for job {args.recommendation_id} not found"
             print(json.dumps({"error": msg}))
             return 1
-        orchestrator = AIOrchestrator(
-            ai_config=get_ai_config(), settings=settings, session=session
-        )
+        orchestrator = AIOrchestrator(ai_config=get_ai_config(), settings=settings, session=session)
         svc = ExplanationService(orchestrator=orchestrator)
         result = svc.explain(target, job_title=args.job_title, company=args.company)
     print(json.dumps(result.to_dict(), sort_keys=True, indent=2))
@@ -458,13 +458,13 @@ def _handle_ai_tailor(args: argparse.Namespace, settings: Settings) -> int:
             print(json.dumps({"error": msg}))
             return 1
         profile_service = ProfileService(
-            session=session, parser=PDFParser(),
-            normalizer=ProfileNormalizer(), validator=ProfileValidator(),
+            session=session,
+            parser=PDFParser(),
+            normalizer=ProfileNormalizer(),
+            validator=ProfileValidator(),
         )
         profile = profile_service.get_current_profile()
-        orchestrator = AIOrchestrator(
-            ai_config=get_ai_config(), settings=settings, session=session
-        )
+        orchestrator = AIOrchestrator(ai_config=get_ai_config(), settings=settings, session=session)
         svc = ResumeTailorService(orchestrator=orchestrator)
         result = svc.tailor(profile, target, job_description=args.job_description)
     print(json.dumps(result.to_dict(), sort_keys=True, indent=2))
@@ -490,16 +490,19 @@ def _handle_ai_cover_letter(args: argparse.Namespace, settings: Settings) -> int
             print(json.dumps({"error": msg}))
             return 1
         profile_service = ProfileService(
-            session=session, parser=PDFParser(),
-            normalizer=ProfileNormalizer(), validator=ProfileValidator(),
+            session=session,
+            parser=PDFParser(),
+            normalizer=ProfileNormalizer(),
+            validator=ProfileValidator(),
         )
         profile = profile_service.get_current_profile()
-        orchestrator = AIOrchestrator(
-            ai_config=get_ai_config(), settings=settings, session=session
-        )
+        orchestrator = AIOrchestrator(ai_config=get_ai_config(), settings=settings, session=session)
         svc = CoverLetterService(orchestrator=orchestrator)
         result = svc.generate(
-            profile, target, company=args.company, recipient=args.recipient,
+            profile,
+            target,
+            company=args.company,
+            recipient=args.recipient,
         )
     print(json.dumps(result.to_dict(), sort_keys=True, indent=2))
     return 0
@@ -517,17 +520,19 @@ def _handle_ai_email(args: argparse.Namespace, settings: Settings) -> int:
     session_factory = create_session_factory(engine)
     with session_scope(session_factory) as session:
         profile_service = ProfileService(
-            session=session, parser=PDFParser(),
-            normalizer=ProfileNormalizer(), validator=ProfileValidator(),
+            session=session,
+            parser=PDFParser(),
+            normalizer=ProfileNormalizer(),
+            validator=ProfileValidator(),
         )
         profile = profile_service.get_current_profile()
-        orchestrator = AIOrchestrator(
-            ai_config=get_ai_config(), settings=settings, session=session
-        )
+        orchestrator = AIOrchestrator(ai_config=get_ai_config(), settings=settings, session=session)
         cover_svc = CoverLetterService(orchestrator=orchestrator)
         cover_letter = cover_svc.generate(
-            profile, None,  # type: ignore[arg-type]
-            company=args.company, recipient=args.recipient,
+            profile,
+            None,  # type: ignore[arg-type]
+            company=args.company,
+            recipient=args.recipient,
         )
         email_svc = EmailDraftService(orchestrator=orchestrator)
         result = email_svc.draft(

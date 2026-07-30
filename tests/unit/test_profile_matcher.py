@@ -12,9 +12,14 @@ from app.domain.recommendation.scorer import SimilarityScorer
 
 def _default_weights() -> dict[str, float]:
     return {
-        "skills": 35.0, "technologies": 20.0, "education": 10.0,
-        "experience": 10.0, "languages": 5.0, "projects": 5.0,
-        "location": 10.0, "preferences": 5.0,
+        "skills": 35.0,
+        "technologies": 20.0,
+        "education": 10.0,
+        "experience": 10.0,
+        "languages": 5.0,
+        "projects": 5.0,
+        "location": 10.0,
+        "preferences": 5.0,
     }
 
 
@@ -42,8 +47,14 @@ def _profile(skills: tuple[Skill, ...] = (), prefs: Preference | None = None) ->
 
 def _job(title: str = "Engineer", location: str = "Tunisia", description: str = "Python") -> Job:
     return Job(
-        id=1, raw_job_id=1, source_id=1, title=title, company="Acme",
-        location=location, description=description, requirements="",
+        id=1,
+        raw_job_id=1,
+        source_id=1,
+        title=title,
+        company="Acme",
+        location=location,
+        description=description,
+        requirements="",
         normalized_hash="abc",
     )
 

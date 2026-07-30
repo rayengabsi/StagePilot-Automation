@@ -68,13 +68,13 @@ def test_validate_json_missing_field() -> None:
 def test_validate_json_not_dict() -> None:
     validator = OutputValidator()
     with pytest.raises(ValidationError, match="not a dict"):
-        validator.validate_json('[1, 2, 3, 4, 5, 6, 7, 8]', ["name"])
+        validator.validate_json("[1, 2, 3, 4, 5, 6, 7, 8]", ["name"])
 
 
 def test_validate_json_malformed() -> None:
     validator = OutputValidator()
     with pytest.raises(ValidationError, match="not valid JSON"):
-        validator.validate_json('{invalid syntax here for json parser}', ["name"])
+        validator.validate_json("{invalid syntax here for json parser}", ["name"])
 
 
 def test_validate_json_empty_field() -> None:

@@ -19,9 +19,14 @@ def test_aggregate_all_zero() -> None:
 
 def _full_weights() -> dict[str, float]:
     return {
-        "skills": 35.0, "technologies": 20.0, "education": 10.0,
-        "experience": 10.0, "languages": 5.0, "projects": 5.0,
-        "location": 10.0, "preferences": 5.0,
+        "skills": 35.0,
+        "technologies": 20.0,
+        "education": 10.0,
+        "experience": 10.0,
+        "languages": 5.0,
+        "projects": 5.0,
+        "location": 10.0,
+        "preferences": 5.0,
     }
 
 
@@ -33,10 +38,18 @@ def test_aggregate_perfect_score() -> None:
         fuzz_threshold=60,
     )
     agg = ScoreAggregator(config)
-    score = agg.aggregate(ScoreBreakdown(
-        skills=100.0, technologies=100.0, education=100.0, experience=100.0,
-        languages=100.0, projects=100.0, location=100.0, preferences=100.0,
-    ))
+    score = agg.aggregate(
+        ScoreBreakdown(
+            skills=100.0,
+            technologies=100.0,
+            education=100.0,
+            experience=100.0,
+            languages=100.0,
+            projects=100.0,
+            location=100.0,
+            preferences=100.0,
+        )
+    )
     assert score == 100.0
 
 
