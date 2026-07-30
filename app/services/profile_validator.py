@@ -231,9 +231,7 @@ class ProfileValidator:
                 )
             seen.add(lower)
 
-    def _validate_awards(
-        self, profile: MasterProfile, errors: list[ValidationError]
-    ) -> None:
+    def _validate_awards(self, profile: MasterProfile, errors: list[ValidationError]) -> None:
         seen: set[str] = set()
         for i, award in enumerate(profile.awards):
             if not award.name or not award.name.strip():
@@ -251,9 +249,7 @@ class ProfileValidator:
                 )
             seen.add(lower)
 
-    def _validate_publications(
-        self, profile: MasterProfile, errors: list[ValidationError]
-    ) -> None:
+    def _validate_publications(self, profile: MasterProfile, errors: list[ValidationError]) -> None:
         seen: set[str] = set()
         for i, pub in enumerate(profile.publications):
             if not pub.title or not pub.title.strip():

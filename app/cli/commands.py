@@ -33,6 +33,7 @@ from app.services.profile_validator import ProfileValidator
 from app.services.prompt_service import PromptService
 from app.services.recommendation_service import RecommendationService
 from app.services.resume_tailor_service import ResumeTailorService
+from app.utils import pii as pii_utils
 
 
 def run_cli(argv: list[str] | None = None) -> int:
@@ -602,6 +603,7 @@ def _handle_profile_show(_args: argparse.Namespace, settings: Settings) -> int:
             profile = service.get_current_profile()
             completeness = service.get_completeness()
             data = profile.to_dict()
+            data["personal_info"] = pii_utils.mask_profile_dict(data["personal_info"])
             data["completeness_score"] = completeness.score
             data["completeness_breakdown"] = completeness.breakdown
             data["missing_fields"] = list(completeness.missing_fields)
@@ -763,9 +765,10 @@ def _handle_profile_list(_args: argparse.Namespace, settings: Settings) -> int:
         )
         try:
             profiles = service.list_profiles()
+            masked = [pii_utils.mask_profile_dict(dict(p)) for p in profiles]
         except Exception as exc:
-            profiles = [{"error": str(exc)}]
-    print(json.dumps([dict(p) for p in profiles], sort_keys=True, indent=2))
+            masked = [{"error": str(exc)}]
+    print(json.dumps(masked, sort_keys=True, indent=2))
     return 0
 
 

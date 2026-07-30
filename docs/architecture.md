@@ -144,30 +144,41 @@ stagepilot discover --backfill
 
 ## Phase 3 Master Profile Engine
 
-Phase 3 implements the Master Profile Engine for importing, normalizing, validating, persisting, versioning, and exporting candidate profiles from resume PDFs.
+Phase 3 implements the Master Profile Engine for importing, normalizing, validating, persisting, versioning, managing, and exporting candidate profiles from resumes in **PDF, DOCX, and Markdown** formats.
 
 See [`docs/phase-3-master-profile.md`](docs/phase-3-master-profile.md) for detailed documentation.
 
-### Persistence (9 tables)
+### Persistence (11 tables)
 
-- `profiles` -- singleton root aggregate
-- `profile_versions` -- immutable JSON snapshots per import
+- `profiles` -- root aggregate with `active` flag (multi-profile support)
+- `profile_versions` -- immutable JSON snapshots per import/edit
 - `education` -- education history entries
 - `experience` -- work experience entries
 - `projects` -- project entries
 - `skills` -- skill entries with category and proficiency
 - `languages` -- language entries with proficiency
 - `certifications` -- certification entries
+- `awards` -- award/honor entries (NEW in Phase 7.6)
+- `publications` -- publication/research entries (NEW in Phase 7.6)
 - `preferences` -- one-to-one preferences (countries, cities, remote, technologies, etc.)
 
 ### Commands
 
 ```text
-stagepilot profile import <file> [--description]
-stagepilot profile show
+stagepilot profile import <file> [--description]   # PDF, DOCX, or Markdown
+stagepilot profile show                              # PII-masked output
 stagepilot profile export [--output]
 stagepilot profile versions
+stagepilot profile edit [--name] [--summary] [--profile-id]
+stagepilot profile validate
+stagepilot profile activate <id>
+stagepilot profile list
+stagepilot profile delete <id>
 ```
+
+### PII Masking
+
+`app/utils/pii.py` provides `mask_email()`, `mask_phone()`, `mask_url()`, and `mask_profile_dict()` for safe display. CLI `show` and `list` commands mask PII automatically. Stored data is never modified.
 
 ## Phase 4 Recommendation Engine
 

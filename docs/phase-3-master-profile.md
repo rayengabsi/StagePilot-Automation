@@ -2,15 +2,18 @@
 
 ## Overview
 
-Phase 3 delivers the **Master Profile Engine** — a deterministic, rule-based pipeline for importing, normalizing, validating, persisting, versioning, and exporting candidate profiles from resume PDFs. The engine processes a resume through six stages:
+Phase 3 delivers the **Master Profile Engine** — a deterministic, rule-based pipeline for importing, normalizing, validating, persisting, versioning, exporting, and managing candidate profiles from resumes in **PDF, DOCX, and Markdown** formats.
+
+The engine processes a resume through seven stages:
 
 | Stage | Component | Responsibility |
 |---|---|---|
-| **Import** | `PDFParser` (infrastructure) | Extract raw text from a PDF resume |
+| **Parse** | `PDFParser` / `DocxParser` / `MarkdownParser` (infrastructure) | Extract raw text from the document |
 | **Normalize** | `ProfileNormalizer` (service) | Convert raw text into structured domain entities via section splitting, regex extraction, and keyword matching |
 | **Validate** | `ProfileValidator` (service) | Check field validity (email, URL, phone format) and compute a completeness score |
-| **Persist** | `ProfileService` (service) | Store normalized data across 9 database tables using a replace-and-version strategy |
+| **Persist** | `ProfileService` (service) | Store normalized data across 11 database tables using a replace-and-version strategy |
 | **Version** | `ProfileVersionRecord` (DB) | Create an immutable JSON snapshot on every import with an auto-incrementing version number |
+| **Mask (display)** | `pii` utility | Mask PII (email, phone, URLs) when displaying profile data in CLI output |
 | **Export** | `ProfileService.export_profile()` (service) | Serialize the current profile to a JSON file |
 
 The engine is **purely deterministic** — no AI models, no LLM calls, no external APIs. Every extraction and validation rule is hand-crafted regex or keyword matching.
@@ -19,41 +22,43 @@ The engine is **purely deterministic** — no AI models, no LLM calls, no extern
 
 ## Architecture
 
-The Master Profile Engine follows the same Clean Architecture layering as the rest of the project:
+The Master Profile Engine follows Clean Architecture layering:
 
 ```
 app/domain/master_profile/    <-- Domain layer: frozen dataclass entities, enums, error types
 app/services/                  <-- Application services: normalizer, validator, profile service
-app/infrastructure/parsers/    <-- Infrastructure: PDF parser implementing ProfileParser ABC
-app/db/models/profile.py       <-- Persistence: 9 SQLAlchemy ORM models
-app/cli/commands.py            <-- CLI: 4 profile subcommands (import, show, export, versions)
+app/infrastructure/parsers/    <-- Infrastructure: PDF, DOCX, Markdown parsers + ParserFactory
+app/db/models/profile.py       <-- Persistence: 11 SQLAlchemy ORM models
+app/cli/commands.py            <-- CLI: 9 profile subcommands
+app/utils/pii.py               <-- PII masking utility for safe display
 ```
 
 ### Layer Responsibilities
 
 | Layer | Directory | Role |
 |---|---|---|
-| **Domain** | `app/domain/master_profile/` | Pure dataclasses with no dependencies on frameworks or databases. All entities are `frozen=True, slots=True` for immutability and memory efficiency. Domain enums (`ProficiencyLevel`, `RemotePreference`, `InternshipDuration`, `SkillCategory`) define closed sets of valid values. Domain errors (`MasterProfileError`, `ProfileNotFoundError`, `ProfileImportError`, `ProfileValidationError`) provide typed exception hierarchy. |
-| **Services** | `app/services/` | Orchestration layer. `ProfileNormalizer` converts raw text to domain entities. `ProfileValidator` checks correctness and computes completeness. `ProfileService` coordinates parser → normalizer → validator → database persistence. |
-| **Infrastructure** | `app/infrastructure/parsers/` | Concrete implementations of the `ProfileParser` ABC. Currently only `PDFParser` (backed by `pdfplumber`), but the interface supports future formats (DOCX, HTML, TXT). |
-| **Persistence** | `app/db/models/profile.py` | SQLAlchemy ORM models mapped to 9 MySQL tables. All child records cascade-delete from the parent `profiles` row. |
-| **CLI** | `app/cli/commands.py` | Four subcommands under `stagepilot profile`: `import`, `show`, `export`, `versions`. |
+| **Domain** | `app/domain/master_profile/` | Pure dataclasses with no dependencies. All entities are `frozen=True, slots=True` for immutability. Enums (`ProficiencyLevel`, `RemotePreference`, `InternshipDuration`) define closed sets of valid values. Errors (`ProfileNotFoundError`, `ProfileValidationError`) provide typed exception hierarchy. |
+| **Services** | `app/services/` | Orchestration layer. `ProfileNormalizer` converts raw text to domain entities (including awards, publications, nationality, summary). `ProfileValidator` checks correctness and computes completeness. `ProfileService` coordinates parser → normalizer → validator → database persistence, plus multi-profile management (activate, list, delete, edit). |
+| **Infrastructure** | `app/infrastructure/parsers/` | `PDFParser` (pdfplumber), `DocxParser` (python-docx), `MarkdownParser` (builtin). `detect_parser()` factory auto-selects the right parser based on file extension. |
+| **Persistence** | `app/db/models/profile.py` | 11 SQLAlchemy ORM models mapped to 11 MySQL tables. All child records cascade-delete. |
+| **CLI** | `app/cli/commands.py` | Nine subcommands under `stagepilot profile`: `import`, `show`, `export`, `versions`, `edit`, `validate`, `activate`, `list`, `delete`. |
+| **PII Masking** | `app/utils/pii.py` | `mask_email()`, `mask_phone()`, `mask_url()`, `mask_profile_dict()` — used by CLI display commands to prevent PII leakage to stdout. |
 
 ---
 
-## Schema — 9 Database Tables
-
-The profile data is stored across 9 related tables. All child tables reference `profiles.id` via a foreign key and cascade on delete.
+## Schema — 11 Database Tables
 
 ### `profiles`
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | INT (PK, auto) | Root aggregate identifier |
+| `name` | VARCHAR(200) | Human-readable label (e.g. "My Profile v2") |
+| `active` | BOOLEAN | Exactly one profile is `TRUE` at any time |
 | `created_at` | DATETIME | Server-default `now()` |
-| `updated_at` | DATETIME | Updated on every persist |
+| `updated_at` | DATETIME | Updated on persist |
 
-There is exactly **one** row in this table at any time. Each import replaces child records and creates a new version row.
+Unlike Phase 3 initial design (singleton row), Phase 7.6 supports **multiple profile rows**, each representing a distinct resume import. The `active` flag selects which profile the pipeline uses. Profile management commands (`activate`, `list`, `delete`) operate on these rows.
 
 ### `profile_versions`
 
@@ -67,70 +72,13 @@ There is exactly **one** row in this table at any time. Each import replaces chi
 | `change_description` | VARCHAR(500) | Optional human-readable description |
 | `created_at` | DATETIME | Server-default `now()` |
 
-Unique per profile on `(profile_id, version_number)` — no two versions share the same number.
+Unique per profile on `(profile_id, version_number)`.
 
-### `education`
+### `education`, `experience`, `projects`, `skills`, `languages`, `certifications`, `preferences`
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | INT (PK, auto) | |
-| `profile_id` | INT (FK → profiles.id) | Indexed |
-| `institution` | VARCHAR(200) | Required |
-| `degree` | VARCHAR(100) | |
-| `field_of_study` | VARCHAR(200) | |
-| `start_date` | DATE | |
-| `end_date` | DATE | |
-| `gpa` | VARCHAR(20) | |
-| `description` | TEXT | |
+Same structure as documented in Phase 3 original design — all child tables with FK to `profiles.id`.
 
-### `experience`
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | INT (PK, auto) | |
-| `profile_id` | INT (FK → profiles.id) | Indexed |
-| `company` | VARCHAR(200) | Required |
-| `title` | VARCHAR(200) | |
-| `location` | VARCHAR(200) | |
-| `start_date` | DATE | |
-| `end_date` | DATE | |
-| `is_current` | BOOLEAN | Default `False` |
-| `description` | TEXT | |
-| `technologies_json` | JSON | Array of technology strings |
-
-### `projects`
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | INT (PK, auto) | |
-| `profile_id` | INT (FK → profiles.id) | Indexed |
-| `name` | VARCHAR(200) | Required |
-| `description` | TEXT | |
-| `url` | VARCHAR(500) | |
-| `technologies_json` | JSON | Array of technology strings |
-| `start_date` | DATE | |
-| `end_date` | DATE | |
-
-### `skills`
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | INT (PK, auto) | |
-| `profile_id` | INT (FK → profiles.id) | Indexed |
-| `name` | VARCHAR(100) | Required |
-| `category` | VARCHAR(50) | e.g. `programming_language`, `framework`, `cloud` |
-| `proficiency` | VARCHAR(20) | One of `native`, `fluent`, `advanced`, `intermediate`, `basic` |
-
-### `languages`
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | INT (PK, auto) | |
-| `profile_id` | INT (FK → profiles.id) | Indexed |
-| `name` | VARCHAR(100) | Required |
-| `proficiency` | VARCHAR(20) | Same proficiency enum as skills |
-
-### `certifications`
+### `awards`
 
 | Column | Type | Notes |
 |---|---|---|
@@ -139,145 +87,173 @@ Unique per profile on `(profile_id, version_number)` — no two versions share t
 | `name` | VARCHAR(200) | Required |
 | `issuer` | VARCHAR(200) | |
 | `date` | DATE | |
-| `url` | VARCHAR(500) | |
+| `description` | TEXT | |
 
-### `preferences`
+### `publications`
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | INT (PK, auto) | |
-| `profile_id` | INT (FK → profiles.id) | **Unique** — one-to-one with profiles |
-| `preferred_countries_json` | JSON | Array of country names |
-| `preferred_cities_json` | JSON | Array of city names |
-| `remote_preference` | VARCHAR(20) | `remote`, `hybrid`, `onsite`, `any` |
-| `internship_duration` | VARCHAR(20) | `1_month` through `6_months`, `any` |
-| `preferred_technologies_json` | JSON | Array of technology strings |
-| `preferred_industries_json` | JSON | Array of industry names |
-| `preferred_company_size` | VARCHAR(50) | |
-| `preferred_language` | VARCHAR(50) | |
-| `salary_expectation` | VARCHAR(100) | |
+| `profile_id` | INT (FK → profiles.id) | Indexed |
+| `title` | VARCHAR(300) | Required |
+| `publisher` | VARCHAR(200) | |
+| `date` | DATE | |
+| `url` | VARCHAR(500) | |
+| `description` | TEXT | |
 
 ---
 
 ## Pipeline
 
-The full processing pipeline flows through these stages:
+### Processing Flow
 
 ```
-Resume PDF
+Resume (PDF / DOCX / Markdown)
     |
     v
- 1. PDFParser.parse(file_path)
-    |   Uses pdfplumber to extract text from every page
-    |   Raises FileNotFoundError / ValueError on failure
+ 1. detect_parser(file_path)
+    |   Auto-detects parser based on file extension
+    |   .pdf → PDFParser (pdfplumber)
+    |   .docx / .doc → DocxParser (python-docx)
+    |   .md / .markdown → MarkdownParser (builtin)
     v
- Raw text
-    |
+ 2. Parser.parse(file_path)
+    |   Extracts raw text from all pages/paragraphs
     v
- 2. ProfileNormalizer.normalize(raw_text)
-    |   a. _split_sections() — detect section headers (education,
-    |      experience, projects, skills, languages, certifications)
-    |      using case-insensitive keyword matching in English and French
+ 3. ProfileNormalizer.normalize(raw_text)
+    |   a. _split_sections() — detect section headers for
+    |      education, experience, projects, skills, languages,
+    |      certifications, summary, awards, publications
+    |      (case-insensitive, English + French keywords)
     |
-    |   b. _extract_personal_info() — first line is name, regex for
-    |      email, phone, URLs (LinkedIn, GitHub, portfolio)
+    |   b. _extract_personal_info() — first line = name,
+    |      regex for email, phone, URLs; nationality detection
+    |      via keyword matching in first 20 lines
     |
-    |   c. _parse_education() — blank-line blocks, institution from
-    |      first line, degree/field via keyword matching
+    |   c. _parse_education / _experience / _projects / _skills
+    |      _languages / _certifications / _awards / _publications
     |
-    |   d. _parse_experience() — blank-line blocks, company from
-    |      first line, title via role keywords, tech via tech keywords
-    |
-    |   e. _parse_projects() — blank-line blocks, name from first line,
-    |      tech via keyword matching, URL extraction
-    |
-    |   f. _parse_skills() — split on commas, semicolons, bullets, newlines
-    |
-    |   g. _parse_languages() — split on commas/semicolons, detect
-    |      proficiency level from text
-    |
-    |   h. _parse_certifications() — split on commas/semicolons/newlines
-    |
-    |   Returns: MasterProfile (frozen dataclass with all sections)
+    |   Returns: MasterProfile (frozen dataclass)
     v
- Normalized MasterProfile
+ 4. ProfileValidator.validate(profile)
+    |   - Personal info: name required; email/phone/URL format checks
+    |   - Education/Experience: required fields + duplicate + date order
+    |   - Skills/Certifications/Projects/Languages: duplicates
+    |   - Awards: duplicates + name required
+    |   - Publications: duplicates + title required
     |
-    v
- 3. ProfileValidator.validate(profile)
-    |   - Personal info: full_name required; email, phone, URL format checks
-    |   - Education: institution required; duplicate detection; date ordering
-    |   - Experience: company required; duplicate detection; date ordering
-    |   - Skills: name required; duplicate detection
-    |   - Certifications: name required; duplicate detection
-    |   - Projects: name required; duplicate detection; URL format check
-    |   - Languages: name required; duplicate detection
-    |
-    |   Raises ProfileValidationError if any errors found
-    v
- Validated MasterProfile
-    |
-    v
- 4. ProfileValidator.compute_completeness(profile)
-    |   Returns ProfileCompleteness with score, breakdown, missing_fields
+    |   Raises ProfileValidationError if errors found
     v
  5. ProfileService._persist(profile, completeness, description)
-    |   a. Ensure profiles row exists (singleton)
-    |   b. Delete all child records (education, experience, etc.)
-    |   c. Insert new child records from the normalized profile
-    |   d. Compute next version_number (max existing + 1)
-    |   e. Insert ProfileVersionRecord with full snapshot_json
-    |   f. Commit transaction
+    |   a. If no profile row exists, create one (active=True)
+    |   b. Replace all child records (delete + re-insert)
+    |   c. Compute next version_number
+    |   d. Insert ProfileVersionRecord with full snapshot_json
+    |   e. Commit
     v
- Database (9 tables updated + 1 new version row)
+ Database (11 tables updated + new version row)
+```
+
+### Active Profile Usage by Pipeline
+
+The `PipelineOrchestrator` loads the active profile via `ProfileService.get_current_profile()` which queries `WHERE active = TRUE`. This profile is used by:
+
+| Pipeline Step | How Active Profile Is Used |
+|---|---|
+| **RecommendationEngine** | Profile skills, experience, education, preferences → job matching |
+| **ResumeTailorService** | Profile content + job description → AI-tailored resume |
+| **CoverLetterService** | Profile personal info + job → AI-generated cover letter |
+| **Renderer** | All profile sections → rendered PDF/DOCX output |
+| **ApprovalService** | Profile snapshot → ApplicationPackage creation |
+
+---
+
+## Domain Entities
+
+### New in Phase 7.6
+
+```python
+@dataclass(frozen=True, slots=True)
+class Award:
+    name: str
+    issuer: str | None = None
+    date: date | None = None
+    description: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Publication:
+    title: str
+    publisher: str | None = None
+    date: date | None = None
+    url: str | None = None
+    description: str | None = None
+```
+
+Updated `PersonalInfo`:
+```python
+@dataclass(frozen=True, slots=True)
+class PersonalInfo:
+    full_name: str
+    email: str | None = None
+    phone: str | None = None
+    location: str | None = None
+    nationality: str | None = None  # NEW
+    linkedin_url: str | None = None
+    github_url: str | None = None
+    portfolio_url: str | None = None
+    summary: str | None = None  # NEW
 ```
 
 ---
 
-## CLI
+## CLI Reference
 
-Four subcommands are available under `stagepilot profile`:
+Nine subcommands under `stagepilot profile`:
 
-### `stagepilot profile import <file>`
+### `import`
 
-Import a resume PDF, normalize, validate, and persist it.
+Import a resume (PDF, DOCX, or Markdown), normalize, validate, and persist it.
 
 ```bash
-# Basic import
+# Auto-detected format (PDF)
 uv run stagepilot profile import path/to/resume.pdf
 
-# Import with a change description for the version history
-uv run stagepilot profile import path/to/resume.pdf --description "Initial import v2"
+# DOCX
+uv run stagepilot profile import path/to/resume.docx
+
+# Markdown
+uv run stagepilot profile import path/to/resume.md
+
+# With change description
+uv run stagepilot profile import resume.md --description "Initial import v2"
 ```
 
 **Output:** JSON with profile metadata (full name, section counts, completeness score).
 
 ```
-{"completeness_breakdown": {"education": 100.0, "experience": 100.0, "personal_info": 66.7, "projects_certifications_languages": 66.7, "skills": 100.0}, "completeness_score": 86.7, "education_count": 2, "experience_count": 3, "full_name": "John Doe", "languages_count": 2, "missing_fields": ["github_url", "portfolio_url"], "projects_count": 1, "skills_count": 10, "status": "imported"}
+{"completeness_score": 86.7, "status": "imported", ...}
 ```
 
-### `stagepilot profile show`
+### `show`
 
-Display the current profile as JSON.
+Display the active profile as JSON (PII fields masked).
 
 ```bash
 uv run stagepilot profile show
 ```
 
-Outputs the full profile including completeness metadata.
+PII masking is applied automatically to `email`, `phone`, `linkedin_url`, `github_url`, `portfolio_url` fields before printing.
 
-### `stagepilot profile export [--output]`
+### `export`
 
-Export the current profile to a JSON file.
+Export the current profile to a JSON file (unmasked, full data).
 
 ```bash
-# Default output file
-uv run stagepilot profile export
-
-# Custom output path
 uv run stagepilot profile export --output my_profile.json
 ```
 
-### `stagepilot profile versions`
+### `versions`
 
 List all profile versions ordered newest-first.
 
@@ -285,161 +261,138 @@ List all profile versions ordered newest-first.
 uv run stagepilot profile versions
 ```
 
-**Output:** JSON array with version number, completeness score, change description, and creation timestamp.
+### `validate`
 
-```json
-[
-  {
-    "version": 2,
-    "completeness_score": 86.7,
-    "change_description": "Imported from resume_v2.pdf",
-    "created_at": "2026-07-30T12:00:00+00:00",
-    "full_name": "John Doe"
-  },
-  {
-    "version": 1,
-    "completeness_score": 73.3,
-    "change_description": "Imported from resume_v1.pdf",
-    "created_at": "2026-07-29T12:00:00+00:00",
-    "full_name": "John Doe"
-  }
-]
+Validate the active profile. Returns validation errors or completeness score.
+
+```bash
+uv run stagepilot profile validate
+```
+
+### `edit`
+
+Edit profile metadata (name, summary). Creates a new version when summary is changed.
+
+```bash
+# Rename a profile
+uv run stagepilot profile edit --name "My Profile v2"
+
+# Update summary
+uv run stagepilot profile edit --summary "Updated professional summary"
+
+# Edit a specific profile (by ID)
+uv run stagepilot profile edit --profile-id 2 --name "Candidate Profile"
+```
+
+### `activate`
+
+Switch the active profile. Deactivates all others.
+
+```bash
+uv run stagepilot profile activate 2
+```
+
+### `list`
+
+List all profiles with id, name, active flag, completeness score (PII masked).
+
+```bash
+uv run stagepilot profile list
+```
+
+### `delete`
+
+Delete a profile (and all its child records via cascade).
+
+```bash
+uv run stagepilot profile delete 3
 ```
 
 ---
 
 ## Completeness Scoring
 
-The `ProfileValidator.compute_completeness()` method calculates a score from 0–100 based on five equally-weighted categories. Each category contributes **20%** to the total.
-
-### Category Breakdown
+Updated from Phase 3 to include **awards** and **publications** in the extra category:
 
 | Category | Weight | Scoring Logic |
 |---|---|---|
-| **Personal Info** | 20% | 6 sub-fields (full_name, email, phone, linkedin_url, github_url, portfolio_url). Each present field contributes 16.67 points. Max: 100. |
-| **Education** | 20% | Binary: 100 if at least one education entry exists, 0 otherwise. |
-| **Skills** | 20% | Linear: `min(100, count * 10)`. 1 skill = 10 pts, 10+ skills = 100 pts. |
-| **Experience** | 20% | Binary: 100 if at least one experience entry exists, 0 otherwise. |
-| **Projects / Certifications / Languages** | 20% | 3 sub-categories (projects, certifications, languages), each worth 33.33 points. 100 if all three sections have data. |
+| **Personal Info** | 20% | 6 sub-fields (full_name, email, phone, linkedin, github, portfolio). Each present = 16.67 pts. |
+| **Education** | 20% | Binary: 100 if ≥1 entry, 0 otherwise. |
+| **Skills** | 20% | Linear: `min(100, count * 10)`. |
+| **Experience** | 20% | Binary: 100 if ≥1 entry, 0 otherwise. |
+| **Extras** | 20% | 5 sub-categories (projects, certifications, languages, **awards**, **publications**), each worth 20 pts. |
 
-**Total formula:**
+**Total:**
 ```
 total = personal_info_pct * 0.20
-      + education_pct       * 0.20
-      + skills_pct          * 0.20
-      + experience_pct      * 0.20
-      + extra_pct           * 0.20
+      + education_pct      * 0.20
+      + skills_pct         * 0.20
+      + experience_pct     * 0.20
+      + extras_pct         * 0.20
 ```
 
-The result is returned as a `ProfileCompleteness` dataclass with:
-- `score` — Float 0–100
-- `breakdown` — Dict of category → percentage (e.g. `{"personal_info": 66.7, "education": 100.0, ...}`)
-- `missing_fields` — Tuple of field/section names that are empty
-
-Missing fields are reported across all five categories so the user knows exactly which sections need improvement.
+Returned as `ProfileCompleteness(score, breakdown, missing_fields)`.
 
 ---
 
 ## Versioning
 
-Every import creates a new **immutable version snapshot**. The versioning system works as follows:
+Every import or summary edit creates a new **immutable version snapshot**:
 
-1. **Auto-incrementing version_number** — `ProfileService._next_version_number()` queries `SELECT MAX(version_number) WHERE profile_id = ?` and adds 1. The first import gets version 1, the second gets version 2, and so on.
+1. **Auto-incrementing version_number** — `SELECT MAX(version_number) WHERE profile_id = ? + 1`
+2. **Full JSON snapshot** — Entire `MasterProfile` serialized via `to_dict()` and stored as `snapshot_json`
+3. **Replace-and-version persist** — All child rows are deleted and re-inserted; prior state is preserved in the latest snapshot
+4. **Change descriptions** — Optional string passed via `--description` or auto-generated
+5. **Version listing** — `list_versions()` reconstructs each `MasterProfile` from snapshot JSON via `_dict_to_profile()`
 
-2. **Full JSON snapshot** — The entire `MasterProfile` is serialized via `to_dict()` and stored as `snapshot_json` in the `profile_versions` table. This preserves the exact state at the time of import, independent of any subsequent changes to child records.
+---
 
-3. **Replace-and-version persist strategy** — When a profile is imported, all child rows (education, experience, skills, projects, languages, certifications, preferences) are **deleted** and **re-inserted** from the new normalized data. This is a replace operation. The previous state is not lost because it is captured in the latest version snapshot.
+## PII Masking Utility
 
-4. **Change descriptions** — Each version can carry an optional `change_description` string (passed via `--description` on the CLI) to document what changed.
+`app/utils/pii.py` provides reusable masking helpers:
 
-5. **Version listing** — `stagepilot profile versions` returns all versions ordered by `version_number DESC`, reconstructing the `MasterProfile` from each snapshot JSON.
+| Function | Input | Output |
+|---|---|---|
+| `mask_email("rayen@example.com")` | `"r***n@example.com"` | Local part masked, domain preserved |
+| `mask_phone("+21653852323")` | `"+21653******"` | First 5 digits visible, rest masked |
+| `mask_url("https://github.com/johndoe")` | `"https://g***e"` | First/last char of host visible |
+| `mask_value("email", val)` | Routes to correct masker | Based on key name |
 
-### Version Table Structure
-
-```sql
-CREATE TABLE profile_versions (
-    id              INT PRIMARY KEY AUTO_INCREMENT,
-    profile_id      INT NOT NULL,
-    version_number  INT NOT NULL,
-    snapshot_json   JSON NOT NULL,
-    completeness_score FLOAT NOT NULL DEFAULT 0.0,
-    change_description VARCHAR(500),
-    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (profile_id) REFERENCES profiles(id),
-    UNIQUE (profile_id, version_number)
-);
-```
-
-Each version is append-only. Old versions are never modified or deleted.
+The utility is used by CLI display commands (`show`, `list`) and is designed to be reusable throughout the project for any logging or display that involves PII. **It never modifies stored profile data** — masking is applied only at the output layer.
 
 ---
 
 ## Design Decisions
 
-### No AI — Purely Deterministic Rule-Based Parsing
+### Deterministic Rule-Based Parsing
+All parsing is regex and keyword-based. No AI, no LLM, no external APIs. Gives reproducibility, speed (milliseconds), debuggability, and zero cost.
 
-The entire normalizer uses hand-crafted regex patterns, keyword lists, and section header detection. There is no machine learning, no LLM API call, and no external NLP service. This choice is deliberate:
+### Multi-Profile Support
+Unlike the original singleton design, Phase 7.6 supports multiple profile rows. The `active` flag determines which profile is used by the pipeline. This enables A/B testing of different resumes, gradual improvements, and rollback.
 
-- **Reproducibility** — The same input always produces the same output.
-- **Speed** — Parsing completes in milliseconds, and requires no GPU or network access.
-- **Debuggability** — Every extraction decision can be traced to a specific regex or keyword match.
-- **Zero cost** — No API tokens, no model hosting, no usage limits.
+### Parser Factory
+`detect_parser()` in `app/infrastructure/parsers/parser_factory.py` auto-selects the correct parser based on file extension. Adding a new format requires only a new parser class and updating the factory — no changes to services or domain.
 
-**Trade-off:** Rule-based parsing is less robust than AI for unusual resume formats or unconventional layouts. The normalizer handles standard resume structures well (section headers, bullet points, chronological order) but may miss data in highly customized layouts.
+### PII Masking at Display Layer
+PII is masked only when displayed. Stored data, exported files, and internal service methods always work with the original unmasked values. This separation ensures data integrity while protecting privacy in logs and CLI output.
 
 ### Clean Architecture
-
-The Master Profile Engine follows strict Clean Architecture boundaries:
-
 | Layer | Dependencies | Can Import From |
 |---|---|---|
-| **Domain** (`entities.py`, `enums.py`, `errors.py`) | Python stdlib only | Nothing |
-| **Services** (`profile_normalizer.py`, `profile_validator.py`, `profile_service.py`) | Domain + stdlib | Domain layer only |
-| **Infrastructure** (`pdf_parser.py`) | Third-party libs (pdfplumber) | Domain + ABC interfaces |
-| **Persistence** (`profile.py` ORM models) | SQLAlchemy | SQLAlchemy + Domain types |
-| **CLI** (`commands.py`) | Services + Infrastructure | All layers |
-
-Domain entities are pure Python `@dataclass(frozen=True, slots=True)` with zero framework dependencies. They can be unit-tested without a database or parser.
-
-### Frozen Dataclasses for Domain Entities
-
-All domain entities (`PersonalInfo`, `Education`, `Experience`, `Project`, `Skill`, `Language`, `Certification`, `Preference`, `MasterProfile`, `ProfileVersion`, `ProfileCompleteness`) are:
-
-- **`frozen=True`** — Immutable after creation. Prevents accidental mutation and makes them safe to use as dictionary keys or in sets.
-- **`slots=True`** — Reduces memory overhead by avoiding `__dict__` per instance. Important when handling profiles with many education/experience/skill entries.
-
-### Two-Layer Duplicate Protection (Cross-Phase)
-
-While Phase 2’s two-layer duplicate protection operates on jobs at the ingestion and semantic levels, Phase 3 adds a separate duplicate detection within the profile validator:
-
-- **Duplicate entries within a section** — The validator checks for duplicate education entries (same institution + degree + field), duplicate experience entries (company + title), duplicate skills, certifications, projects, and languages. These are reported as validation errors and prevent import.
-- **No cross-profile duplicate detection** — The engine assumes each user manages a single profile. There is no deduplication between different resume imports — each import creates a new version, and the previous data is replaced, not merged.
-
-### Preference Defaults
-
-The `Preference` entity uses sensible defaults:
-- `RemotePreference.ANY` — No remote preference bias
-- `InternshipDuration.ANY` — No duration restriction
-- Empty tuples for preferred countries, cities, technologies, industries
-
-These are set during normalization and can be updated via future API endpoints or CLI commands.
-
-### Parser Extensibility
-
-The `ProfileParser` abstract base class defines a single method `parse(file_path: Path) -> str`. This interface allows adding new parsers for different document formats without changing any service or domain code:
-
-- `PDFParser` — Current implementation using `pdfplumber`
-- Future: `DOCXParser`, `HTMLParser`, `TxtParser`, `MarkdownParser`
-
-All parsers return raw text. Normalization is handled entirely by `ProfileNormalizer`, keeping the infrastructure layer thin.
+| **Domain** | Python stdlib only | Nothing |
+| **Services** | Domain + stdlib | Domain layer only |
+| **Infrastructure** | Third-party libs (pdfplumber, python-docx) | Domain + ABC interfaces |
+| **Persistence** | SQLAlchemy | SQLAlchemy + Domain types |
+| **CLI** | Services + Infrastructure + Utils | All layers |
+| **Utils** | Python stdlib | Nothing |
 
 ---
 
-## Future Directions
+## Migration
 
-- Add DOCX and HTML parser implementations
-- Expose preference editing via CLI (`stagepilot profile set-preference`)
-- Add profile diff between versions (`stagepilot profile diff --v1 --v2`)
-- Implement profile merge strategies for incremental resume updates
-- Add export to additional formats (YAML, Markdown, HTML)
-- Store completeness history over time for trend visualization
+Phase 7.6 includes an Alembic migration (`20260730_add_profile_name_active_awards_publications.py`) that:
+
+1. Adds `name` (VARCHAR(200)) and `active` (BOOLEAN) columns to the `profiles` table
+2. Creates `awards` and `publications` tables with FK to `profiles.id`
+
+The migration depends on the prior migration `32a34eb5c804`.

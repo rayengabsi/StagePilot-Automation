@@ -246,9 +246,7 @@ class ProfileService:
         return (max_version or 0) + 1
 
     def get_current_profile(self) -> MasterProfile:
-        profile_row = self._session.scalar(
-            select(Profile).where(Profile.active.is_(True)).limit(1)
-        )
+        profile_row = self._session.scalar(select(Profile).where(Profile.active.is_(True)).limit(1))
         if profile_row is None:
             raise ProfileNotFoundError("No active profile found.")
         return self._db_to_domain(profile_row)
@@ -420,9 +418,7 @@ class ProfileService:
         return tuple(versions)
 
     def list_profiles(self) -> tuple[dict[str, Any], ...]:
-        rows = self._session.scalars(
-            select(Profile).order_by(Profile.created_at.desc())
-        ).all()
+        rows = self._session.scalars(select(Profile).order_by(Profile.created_at.desc())).all()
         result: list[dict[str, Any]] = []
         for row in rows:
             try:
@@ -430,15 +426,17 @@ class ProfileService:
             except Exception:  # noqa: S112
                 continue
             c = self._validator.compute_completeness(profile)
-            result.append({
-                "id": row.id,
-                "name": row.name or profile.personal_info.full_name or f"Profile #{row.id}",
-                "active": row.active,
-                "full_name": profile.personal_info.full_name,
-                "email": profile.personal_info.email,
-                "completeness_score": c.score,
-                "created_at": row.created_at.isoformat() if row.created_at else "",
-            })
+            result.append(
+                {
+                    "id": row.id,
+                    "name": row.name or profile.personal_info.full_name or f"Profile #{row.id}",
+                    "active": row.active,
+                    "full_name": profile.personal_info.full_name,
+                    "email": profile.personal_info.email,
+                    "completeness_score": c.score,
+                    "created_at": row.created_at.isoformat() if row.created_at else "",
+                }
+            )
         return tuple(result)
 
     def activate_profile(self, profile_id: int) -> str:
