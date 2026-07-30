@@ -141,3 +141,83 @@ The `--backfill` flag processes all existing jobs that lack a `JobMatch` record.
 ```bash
 stagepilot discover --backfill
 ```
+
+## Phase 3 Master Profile Engine
+
+Phase 3 implements the Master Profile Engine for importing, normalizing, validating, persisting, versioning, and exporting candidate profiles from resume PDFs.
+
+See [`docs/phase-3-master-profile.md`](docs/phase-3-master-profile.md) for detailed documentation.
+
+### Persistence (9 tables)
+
+- `profiles` -- singleton root aggregate
+- `profile_versions` -- immutable JSON snapshots per import
+- `education` -- education history entries
+- `experience` -- work experience entries
+- `projects` -- project entries
+- `skills` -- skill entries with category and proficiency
+- `languages` -- language entries with proficiency
+- `certifications` -- certification entries
+- `preferences` -- one-to-one preferences (countries, cities, remote, technologies, etc.)
+
+### Commands
+
+```text
+stagepilot profile import <file> [--description]
+stagepilot profile show
+stagepilot profile export [--output]
+stagepilot profile versions
+```
+
+## Phase 4 Recommendation Engine
+
+Phase 4 implements the Recommendation Engine -- a deterministic matching pipeline that scores jobs against the master profile using configurable hard rules, 8-category similarity scoring, and weighted aggregation.
+
+See [`docs/phase-4-recommendation-engine.md`](docs/phase-4-recommendation-engine.md) for detailed documentation.
+
+```text
+                     MasterProfile
+                          |
+                          v
+      +--------------------------------------+
+      |     ProfileMatcher (orchestrator)     |
+      |                                       |
+      |  +----------------+  +-------------+  |
+      |  | HardRuleMatcher|  |Similarity   |  |
+      |  |  - country     |  |Scorer       |  |
+      |  |  - work mode   |  |  - 8 cats   |  |
+      |  |  - language    |  |  - rapidfuzz|  |
+      |  +-------+--------+  +------+------+  |
+      |          |                  |          |
+      |          v                  v          |
+      |  +----------------+  +-------------+  |
+      |  | HardRuleResult |  |ScoreBreakdown|  |
+      |  +----------------+  +------+------+  |
+      |                             |          |
+      |                             v          |
+      |                    +-------------+     |
+      |                    | ScoreAggreg |     |
+      |                    |  (weighted) |     |
+      |                    +------+------+     |
+      |                           |            |
+      +---------------------------|------------+
+                                 v
+                          Recommendation
+                     (persisted to database)
+```
+
+### Persistence (2 new tables)
+
+- `recommendations` -- stores final_score, ranking_position, status, 6 JSON columns for matched/missing items, score_breakdown_json, hard_rule results
+- `recommendation_feedback` -- stores user feedback per recommendation (reason + optional comment)
+
+### Commands
+
+```text
+stagepilot recommend [--top N] [--json] [--list]
+stagepilot feedback <id> --reason <reason> [--comment <text>]
+```
+
+### Configuration
+
+All scoring weights, thresholds, hard-rule toggles, and the fuzz threshold are configured in `app/config/matching.toml`. No weights are hardcoded in Python.

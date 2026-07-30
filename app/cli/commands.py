@@ -20,6 +20,7 @@ from app.services.job_source_repository import JobSourceRepository
 from app.services.profile_normalizer import ProfileNormalizer
 from app.services.profile_service import ProfileService
 from app.services.profile_validator import ProfileValidator
+from app.services.recommendation_service import RecommendationService
 
 
 def run_cli(argv: list[str] | None = None) -> int:
@@ -83,6 +84,39 @@ def _build_parser() -> argparse.ArgumentParser:
 
     versions_parser = profile_subparsers.add_parser("versions", help="List profile versions.")
     versions_parser.set_defaults(handler=_handle_profile_versions)
+
+    recommend_parser = subparsers.add_parser(
+        "recommend", help="Run the recommendation engine against qualified jobs."
+    )
+    recommend_parser.add_argument(
+        "--top", type=int, default=None, help="Limit to top N recommendations."
+    )
+    recommend_parser.add_argument(
+        "--json", action="store_true", help="Output raw JSON."
+    )
+    recommend_parser.add_argument(
+        "--list", action="store_true", help="List persisted recommendations instead of running."
+    )
+    recommend_parser.set_defaults(handler=_handle_recommend)
+
+    feedback_parser = subparsers.add_parser(
+        "feedback", help="Submit feedback for a recommendation."
+    )
+    feedback_parser.add_argument(
+        "recommendation_id", type=int, help="Recommendation record ID."
+    )
+    feedback_parser.add_argument(
+        "--reason", required=True,
+        choices=[
+            "wrong_country", "wrong_field", "wrong_technologies",
+            "too_senior", "salary", "not_remote", "other",
+        ],
+        help="Feedback reason.",
+    )
+    feedback_parser.add_argument(
+        "--comment", type=str, default=None, help="Optional free text comment."
+    )
+    feedback_parser.set_defaults(handler=_handle_feedback)
 
     return parser
 
@@ -266,4 +300,64 @@ def _handle_list_sources(_args: argparse.Namespace, settings: Settings) -> int:
         ]
 
     print(json.dumps(sources, sort_keys=True))
+    return 0
+
+
+def _handle_recommend(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the recommend command."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        service = RecommendationService(session=session)
+
+        if getattr(args, "list", False):
+            recommendations = service.list_recommendations(top_n=args.top)
+        else:
+            recommendations = service.recommend(top_n=args.top)
+
+        output = []
+        for rec in recommendations:
+            entry = rec.to_dict()
+            output.append(entry)
+
+    if getattr(args, "json", False):
+        print(json.dumps(output, sort_keys=True, indent=2, default=str))
+    else:
+        if not output:
+            print("No recommendations found.")
+            return 0
+        print(f"{'Rank':<6}{'Score':<8}{'Job ID':<8}{'Status':<12}{'Matched Skills'}")
+        print("-" * 80)
+        for rec in output:
+            matched = ", ".join(rec["matched_detail"]["matched_skills"][:5])
+            if len(rec["matched_detail"]["matched_skills"]) > 5:
+                matched += "..."
+            print(
+                f"{rec['ranking_position']:<6}"
+                f"{rec['final_score']:<8.1f}"
+                f"{rec['job_id']:<8}"
+                f"{rec['status']:<12}"
+                f"{matched}"
+            )
+    return 0
+
+
+def _handle_feedback(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the feedback command."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        service = RecommendationService(session=session)
+        fb = service.feedback(
+            recommendation_id=args.recommendation_id,
+            reason=args.reason,
+            comment=args.comment,
+        )
+        result = {
+            "recommendation_id": fb.recommendation_id,
+            "reason": fb.reason,
+            "comment": fb.comment,
+            "created_at": fb.created_at,
+        }
+    print(json.dumps(result, sort_keys=True))
     return 0

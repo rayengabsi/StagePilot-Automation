@@ -13,6 +13,7 @@ from app.db.models.profile import (
     ProjectRecord,
     SkillRecord,
 )
+from app.db.models.recommendation import RecommendationFeedbackRecord, RecommendationRecord
 
 __all__ = [
     "CertificationRecord",
@@ -27,5 +28,7 @@ __all__ = [
     "ProfileVersionRecord",
     "ProjectRecord",
     "RawJob",
+    "RecommendationFeedbackRecord",
+    "RecommendationRecord",
     "SkillRecord",
 ]

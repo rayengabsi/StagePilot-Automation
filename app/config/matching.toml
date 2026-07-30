@@ -1,0 +1,21 @@
+[weights]
+skills = 35.0
+technologies = 20.0
+education = 10.0
+experience = 10.0
+languages = 5.0
+projects = 5.0
+location = 10.0
+preferences = 5.0
+
+[thresholds]
+minimum_score = 0.0
+recommendation_cutoff = 30.0
+
+[hard_rules]
+match_country = true
+match_work_mode = true
+match_language = true
+
+[similarity]
+fuzz_threshold = 60
