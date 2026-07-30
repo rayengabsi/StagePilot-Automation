@@ -1,0 +1,55 @@
+{
+  "name": "classic",
+  "version": "1.0.0",
+  "description": "Traditional classic resume with serif fonts and conservative styling",
+  "fonts": {
+    "family": "Times-Roman",
+    "heading": { "family": "Times-Roman", "size": 18, "weight": "bold", "color": "#000000" },
+    "subheading": { "family": "Times-Roman", "size": 12, "weight": "bold", "color": "#000000" },
+    "body": { "family": "Times-Roman", "size": 11, "weight": "normal", "color": "#000000" }
+  },
+  "colors": {
+    "primary": "#000000",
+    "secondary": "#000000",
+    "accent": "#000000",
+    "text": "#000000",
+    "background": "#ffffff",
+    "section_divider": "#000000"
+  },
+  "spacing": {
+    "page_margin_top": 50,
+    "page_margin_bottom": 50,
+    "page_margin_left": 60,
+    "page_margin_right": 60,
+    "section_gap": 18,
+    "line_height": 1.1
+  },
+  "header": {
+    "alignment": "center",
+    "show_name": true,
+    "show_title": true
+  },
+  "footer": {
+    "alignment": "center",
+    "show_page_number": true
+  },
+  "section_order": [
+    "summary", "experience", "education", "skills",
+    "projects", "certifications", "languages"
+  ],
+  "page_size": "A4",
+  "columns": 1,
+  "show_header": true,
+  "show_footer": true,
+  "show_icons": false,
+  "show_photo": false,
+  "section_styles": {
+    "summary": { "show_divider": false, "layout": "standard" },
+    "skills": { "show_divider": true, "layout": "compact" },
+    "experience": { "show_divider": true, "layout": "detailed" },
+    "education": { "show_divider": true, "layout": "detailed" },
+    "projects": { "show_divider": true, "layout": "detailed" },
+    "languages": { "show_divider": true, "layout": "compact" },
+    "certifications": { "show_divider": true, "layout": "compact" }
+  }
+}

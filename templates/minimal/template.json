@@ -1,0 +1,52 @@
+{
+  "name": "minimal",
+  "version": "1.0.0",
+  "description": "Minimal design with ample white space and subtle dividers",
+  "fonts": {
+    "family": "Helvetica",
+    "heading": { "family": "Helvetica", "size": 16, "weight": "normal", "color": "#333333" },
+    "subheading": { "family": "Helvetica", "size": 11, "weight": "bold", "color": "#555555" },
+    "body": { "family": "Helvetica", "size": 10, "weight": "normal", "color": "#666666" }
+  },
+  "colors": {
+    "primary": "#333333",
+    "secondary": "#555555",
+    "accent": "#888888",
+    "text": "#666666",
+    "background": "#ffffff",
+    "section_divider": "#dddddd"
+  },
+  "spacing": {
+    "page_margin_top": 60,
+    "page_margin_bottom": 60,
+    "page_margin_left": 60,
+    "page_margin_right": 60,
+    "section_gap": 24,
+    "line_height": 1.3
+  },
+  "header": {
+    "alignment": "center",
+    "show_name": true,
+    "show_title": false
+  },
+  "footer": {
+    "alignment": "center",
+    "show_page_number": false
+  },
+  "section_order": [
+    "summary", "skills", "experience", "education", "projects"
+  ],
+  "page_size": "A4",
+  "columns": 1,
+  "show_header": true,
+  "show_footer": false,
+  "show_icons": false,
+  "show_photo": false,
+  "section_styles": {
+    "summary": { "show_divider": false, "layout": "standard" },
+    "skills": { "show_divider": true, "layout": "compact" },
+    "experience": { "show_divider": true, "layout": "detailed" },
+    "education": { "show_divider": true, "layout": "detailed" },
+    "projects": { "show_divider": true, "layout": "detailed" }
+  }
+}

@@ -1,0 +1,24 @@
+[general]
+default_template = "modern"
+default_theme = "default"
+default_language = "en"
+
+[page]
+page_size = "A4"
+page_width = 595.27
+page_height = 841.89
+
+[fonts]
+font_directory = ""
+fallback_family = "Helvetica"
+
+[pdf_metadata]
+author = "StagePilot Automation"
+subject = "Resume / Cover Letter"
+keywords = "resume, cover letter, job application"
+
+[export]
+default_formats = ["pdf", "docx"]
+
+[preview]
+default_page = 1

@@ -164,6 +164,56 @@ def _build_parser() -> argparse.ArgumentParser:
     ai_prompts_parser = ai_subparsers.add_parser("prompts", help="List available AI prompts.")
     ai_prompts_parser.set_defaults(handler=_handle_ai_prompts)
 
+    render_parser = subparsers.add_parser("render", help="Render documents (resume, cover letter).")
+    render_subparsers = render_parser.add_subparsers(dest="render_command")
+
+    r_resume = render_subparsers.add_parser("resume", help="Render a resume.")
+    r_resume.add_argument(
+        "--template", type=str, default=None,
+        help="Template name (modern, executive, minimal, classic, professional).",
+    )
+    r_resume.add_argument(
+        "--theme", type=str, default=None,
+        help="Theme name from config/theme.toml.",
+    )
+    r_resume.add_argument(
+        "--format", type=str, default="pdf",
+        choices=["pdf", "docx", "all"], help="Output format.",
+    )
+    r_resume.add_argument(
+        "--output", type=str, default=None,
+        help="Output file path (default: output/resume.pdf).",
+    )
+    r_resume.set_defaults(handler=_handle_render_resume)
+
+    r_cover = render_subparsers.add_parser(
+        "cover-letter", help="Render a cover letter.",
+    )
+    r_cover.add_argument(
+        "--template", type=str, default=None, help="Template name.",
+    )
+    r_cover.add_argument("--theme", type=str, default=None, help="Theme name.")
+    r_cover.add_argument(
+        "--format", type=str, default="pdf",
+        choices=["pdf", "docx", "all"], help="Output format.",
+    )
+    r_cover.add_argument(
+        "--output", type=str, default=None,
+        help="Output file path (default: output/cover_letter.pdf).",
+    )
+    r_cover.set_defaults(handler=_handle_render_cover_letter)
+
+    r_tpl = render_subparsers.add_parser("templates", help="List available templates.")
+    r_tpl.set_defaults(handler=_handle_render_templates)
+
+    r_thm = render_subparsers.add_parser("themes", help="List available themes.")
+    r_thm.set_defaults(handler=_handle_render_themes)
+
+    r_preview = render_subparsers.add_parser("preview", help="Preview rendering setup (dry run).")
+    r_preview.add_argument("--template", type=str, default=None, help="Template name.")
+    r_preview.add_argument("--theme", type=str, default=None, help="Theme name.")
+    r_preview.set_defaults(handler=_handle_render_preview)
+
     return parser
 
 
@@ -568,4 +618,152 @@ def _handle_ai_prompts(_args: argparse.Namespace, _settings: Settings) -> int:
     svc = PromptService()
     prompts = svc.list_prompts()
     print(json.dumps(prompts, sort_keys=True, indent=2))
+    return 0
+
+
+def _handle_render_resume(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle render resume command."""
+    from app.infrastructure.parsers.pdf_parser import PDFParser
+    from app.rendering.renderer_factory import RendererFactory
+    from app.services.profile_normalizer import ProfileNormalizer
+    from app.services.profile_service import ProfileService
+    from app.services.profile_validator import ProfileValidator
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        profile_service = ProfileService(
+            session=session,
+            parser=PDFParser(),
+            normalizer=ProfileNormalizer(),
+            validator=ProfileValidator(),
+        )
+        profile = profile_service.get_current_profile()
+    output_dir = Path("output")
+    output_dir.mkdir(exist_ok=True)
+
+    fmt = args.format
+    formats = ["pdf", "docx"] if fmt == "all" else [fmt]
+    factory = RendererFactory()
+    results = factory.render_resume_all(
+        profile, output_dir,
+        template_name=args.template,
+        formats=formats,
+    )
+    for r in results:
+        print(json.dumps({
+            "path": str(r.path),
+            "format": r.format,
+            "sections_rendered": r.sections_rendered,
+            "template": r.template_used,
+        }, indent=2))
+    return 0
+
+
+def _handle_render_cover_letter(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle render cover-letter command."""
+    from app.infrastructure.parsers.pdf_parser import PDFParser
+    from app.rendering.models import CoverLetterData
+    from app.rendering.renderer_factory import RendererFactory
+    from app.services.profile_normalizer import ProfileNormalizer
+    from app.services.profile_service import ProfileService
+    from app.services.profile_validator import ProfileValidator
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        profile_service = ProfileService(
+            session=session,
+            parser=PDFParser(),
+            normalizer=ProfileNormalizer(),
+            validator=ProfileValidator(),
+        )
+        profile = profile_service.get_current_profile()
+    output_dir = Path("output")
+    output_dir.mkdir(exist_ok=True)
+
+    cover_body = (
+        "Dear Hiring Manager,\n\n"
+        "I am writing to express my strong interest in this position. "
+        "With my background and skills, I am confident I can contribute "
+        "effectively to your team.\n\n"
+        "Thank you for your consideration.\n\nSincerely,\n"
+        f"{profile.personal_info.full_name}"
+    )
+    cover_data = CoverLetterData(
+        body=cover_body,
+        candidate_name=profile.personal_info.full_name,
+    )
+
+    fmt = args.format
+    formats = ["pdf", "docx"] if fmt == "all" else [fmt]
+    factory = RendererFactory()
+    results = factory.render_cover_letter_all(
+        profile, cover_data, output_dir,
+        template_name=args.template,
+        formats=formats,
+    )
+    for r in results:
+        print(json.dumps({
+            "path": str(r.path),
+            "format": r.format,
+            "template": r.template_used,
+        }, indent=2))
+    return 0
+
+
+def _handle_render_templates(
+    _args: argparse.Namespace, _settings: Settings
+) -> int:
+    """Handle render templates command."""
+    from app.rendering.template_loader import load_all_templates
+
+    templates = load_all_templates()
+    print(json.dumps(templates, indent=2))
+    return 0
+
+
+def _handle_render_themes(
+    _args: argparse.Namespace, _settings: Settings
+) -> int:
+    """Handle render themes command."""
+    from app.rendering.theme_loader import load_default_theme
+
+    theme = load_default_theme()
+    print(json.dumps({"name": theme.name, "configured": True}, indent=2))
+    return 0
+
+
+def _handle_render_preview(args: argparse.Namespace, _settings: Settings) -> int:
+    """Handle render preview command (dry run)."""
+    from app.rendering.template_loader import TemplateLoader
+    from app.rendering.theme_loader import ThemeLoader
+
+    tpl_loader = TemplateLoader()
+    tpl_name = args.template or "modern"
+    try:
+        template = tpl_loader.load(tpl_name)
+    except FileNotFoundError:
+        print(json.dumps({"error": f"Template '{tpl_name}' not found"}))
+        return 1
+    theme_loader = ThemeLoader()
+    theme = theme_loader.load()
+    effective = theme.apply_to(template)
+    print(json.dumps({
+        "template": effective.name,
+        "theme": theme.name,
+        "page_size": effective.page_size,
+        "columns": effective.columns,
+        "font_family": effective.fonts.family,
+        "section_order": list(effective.section_order),
+        "colors": {
+            "primary": effective.colors.primary,
+            "secondary": effective.colors.secondary,
+            "accent": effective.colors.accent,
+        },
+        "margins": {
+            "top": effective.spacing.page_margin_top,
+            "left": effective.spacing.page_margin_left,
+        },
+    }, indent=2))
     return 0

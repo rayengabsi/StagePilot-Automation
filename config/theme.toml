@@ -1,0 +1,25 @@
+name = "default"
+
+# Override any template value below (leave empty to use template defaults)
+# primary_color = "#e94560"
+# secondary_color = "#16213e"
+# accent_color = "#0f3460"
+# page_size = "letter"
+# font_family = "Helvetica"
+# show_icons = false
+# show_photo = false
+# columns = 1
+
+[font_sizes]
+# heading = 16
+# subheading = 12
+# body = 10
+
+[margins]
+# top = 50
+# bottom = 50
+# left = 50
+# right = 50
+
+[spacing]
+# section_gap = 20

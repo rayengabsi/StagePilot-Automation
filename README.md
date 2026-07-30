@@ -10,10 +10,11 @@ AI-powered, human-in-the-loop internship automation platform.
 - Phase 3 — Master Profile Engine: resume PDF import, deterministic normalization, field validation, completeness scoring, versioned persistence, JSON export — complete.
 - Phase 4 — Recommendation Engine: hard-rule gating, 8-category similarity scoring, weighted aggregation, ranking, feedback — complete.
 - Phase 5 — AI Intelligence Layer: provider abstraction (ABC + Gemini), 4 versioned prompt templates, AI orchestrator, 4 services (explanation, resume tailoring, cover letter, email), deterministic output validation, token tracking — complete.
+- Phase 6 — Resume Rendering & Document Generation Engine: data-driven template system (5 templates), theme system with TOML overrides, PDF generation (reportlab) with selectable text and ATS-friendly formatting, DOCX generation (python-docx) with heading hierarchy, CLI render subcommands — complete.
 
 ## Architecture
 
-The project is a modular monolith using Clean Architecture and Domain-Driven Design boundaries. The database contains 16+ tables spanning jobs (Phase 1–2), job matching (Phase 2), profiles (Phase 3), recommendations & feedback (Phase 4), and AI token usage (Phase 5), including `profiles`, `profile_versions`, `education`, `experience`, `projects`, `skills`, `languages`, `certifications`, `preferences`, `recommendations`, `recommendation_feedback`, and `ai_token_usage`.
+The project is a modular monolith using Clean Architecture and Domain-Driven Design boundaries. The database contains 16+ tables spanning jobs (Phase 1–2), job matching (Phase 2), profiles (Phase 3), recommendations & feedback (Phase 4), and AI token usage (Phase 5). The rendering engine (Phase 6) operates from in-memory profile data and does not require new database tables.
 
 See [`docs/architecture.md`](docs/architecture.md).
 
@@ -122,6 +123,34 @@ See [`docs/phase-4-recommendation-engine.md`](docs/phase-4-recommendation-engine
 Phase 5 AI intelligence layer documentation:
 
 See [`docs/phase-5-ai-intelligence-layer.md`](docs/phase-5-ai-intelligence-layer.md) for detailed documentation.
+
+### Document Rendering
+
+Phase 6 adds professional document generation from your Master Profile:
+
+```bash
+# Render resume as PDF (default template: modern)
+uv run stagepilot render resume
+
+# Render resume as DOCX
+uv run stagepilot render resume --format docx
+
+# Render with a different template in all formats
+uv run stagepilot render resume --template executive --format all
+
+# Render a cover letter
+uv run stagepilot render cover-letter
+
+# List available templates
+uv run stagepilot render templates
+
+# Preview template configuration
+uv run stagepilot render preview --template modern
+```
+
+Generated documents go to `output/resume.pdf`, `output/resume.docx`, `output/cover_letter.pdf`, `output/cover_letter.docx`.
+
+Five templates are available: `modern`, `executive`, `minimal`, `classic`, `professional`. Templates are pure JSON — adding a new template requires zero code changes.
 
 ### AI-Powered Features
 
@@ -246,6 +275,18 @@ app/
 │   └── parsers/                          # Phase 3: ProfileParser ABC + PDF parser
 │       ├── abstract.py                   # ProfileParser (ABC)
 │       └── pdf_parser.py                 # PDFParser (pdfplumber)
+├── rendering/                            # Phase 6: Document generation engine
+│   ├── __init__.py
+│   ├── abstract.py                       # DocumentRenderer (ABC)
+│   ├── assets.py                         # Font resolution
+│   ├── cover_letter_renderer.py          # Cover letter orchestration
+│   ├── docx_renderer.py                  # DOCX rendering (python-docx)
+│   ├── models.py                         # RenderContext, DocumentOutput, etc.
+│   ├── pdf_renderer.py                   # PDF rendering (reportlab)
+│   ├── renderer_factory.py               # Factory + render_document()
+│   ├── resume_renderer.py                # Resume orchestration
+│   ├── template_loader.py                # TemplateDef + loader (templates/*/template.json)
+│   └── theme_loader.py                   # ThemeDef + loader (config/theme.toml)
 └── services/
     ├── ai_orchestrator.py                # Phase 5: AI pipeline orchestrator
     ├── cover_letter_service.py           # Phase 5: cover letter generation

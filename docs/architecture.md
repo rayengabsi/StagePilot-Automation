@@ -328,6 +328,76 @@ stagepilot ai prompts
 
 - AI never modifies deterministic matching, filtering, or scoring results
 - AI never sends emails or makes external calls beyond the configured LLM API
+
+## Phase 6: Resume Rendering & Document Generation Engine
+
+Phase 6 implements the document rendering engine — a deterministic, template-driven system that transforms structured profile data and AI-tailored content into professional PDF and DOCX documents. Python owns all layout, typography, pagination, and formatting.
+
+See [`docs/phase-6-document-rendering.md`](docs/phase-6-document-rendering.md) for detailed documentation.
+
+### Architecture
+
+```
+MasterProfile + AI Tailored Sections
+                ↓
+         RenderContext
+                ↓
+    ResumeRenderer / CoverLetterRenderer
+                ↓
+    ┌──────────────────┐
+    │  RendererFactory  │
+    └──────┬───────────┘
+       ┌───┴───┐
+       v       v
+ PdfRenderer  DocxRenderer
+ (reportlab)  (python-docx)
+       │       │
+       v       v
+  resume.pdf  resume.docx
+```
+
+### Template System
+
+- **5 data-driven templates** — modern, executive, minimal, classic, professional
+- **Pure JSON** — each template is a `template.json` file under `templates/<name>/`
+- **Zero code changes** to add a template — `TemplateLoader` auto-discovers
+
+### Theme System
+
+- Runtime overrides via `config/theme.toml`
+- `ThemeDef.apply_to()` merges overrides with template, returns new `TemplateDef`
+- Supports color, font, page size, margin, icon/photo visibility overrides
+
+### PDF Rendering (reportlab)
+
+- Selectable text via `Paragraph` with text operators
+- ATS-compatible: standard fonts (Helvetica, Times-Roman), simple layout, extractable text
+- Automatic page breaks via `SimpleDocTemplate` flowable overflow
+- Consistent typography via `ParagraphStyle` per role
+
+### DOCX Rendering (python-docx)
+
+- Heading hierarchy: Heading 0 (name) → Heading 1 (sections)
+- Professional formatting with consistent fonts, sizes, colors, margins
+- Detailed section layout with dates and technologies
+
+### CLI
+
+```text
+stagepilot render resume [--template] [--theme] [--format]
+stagepilot render cover-letter [--template] [--theme] [--format]
+stagepilot render templates
+stagepilot render themes
+stagepilot render preview [--template]
+```
+
+### Key Engineering Rules
+
+- No AI in rendering pipeline — Python owns all document generation
+- Templates are pure data (JSON), never code
+- All config is immutable frozen dataclasses
+- Renderers are provider-independent via `DocumentRenderer` ABC
+- Adding a new template requires zero renderer or Python changes
 - AI never persists data to tables outside `ai_token_usage`
 - AI never makes business logic decisions
 - AI never accesses the database directly

@@ -1,0 +1,55 @@
+{
+  "name": "executive",
+  "version": "1.0.0",
+  "description": "Traditional executive style with serif fonts and formal layout",
+  "fonts": {
+    "family": "Times-Roman",
+    "heading": { "family": "Times-Roman", "size": 20, "weight": "bold", "color": "#000000" },
+    "subheading": { "family": "Times-Roman", "size": 13, "weight": "bold", "color": "#2c3e50" },
+    "body": { "family": "Times-Roman", "size": 11, "weight": "normal", "color": "#2c3e50" }
+  },
+  "colors": {
+    "primary": "#000000",
+    "secondary": "#2c3e50",
+    "accent": "#c0392b",
+    "text": "#2c3e50",
+    "background": "#ffffff",
+    "section_divider": "#000000"
+  },
+  "spacing": {
+    "page_margin_top": 60,
+    "page_margin_bottom": 50,
+    "page_margin_left": 60,
+    "page_margin_right": 60,
+    "section_gap": 22,
+    "line_height": 1.2
+  },
+  "header": {
+    "alignment": "left",
+    "show_name": true,
+    "show_title": true
+  },
+  "footer": {
+    "alignment": "center",
+    "show_page_number": true
+  },
+  "section_order": [
+    "summary", "experience", "education", "skills",
+    "projects", "certifications", "languages"
+  ],
+  "page_size": "A4",
+  "columns": 1,
+  "show_header": true,
+  "show_footer": true,
+  "show_icons": false,
+  "show_photo": false,
+  "section_styles": {
+    "summary": { "show_divider": true, "layout": "standard" },
+    "skills": { "show_divider": true, "layout": "compact" },
+    "experience": { "show_divider": true, "layout": "detailed" },
+    "education": { "show_divider": true, "layout": "detailed" },
+    "projects": { "show_divider": true, "layout": "detailed" },
+    "languages": { "show_divider": true, "layout": "compact" },
+    "certifications": { "show_divider": true, "layout": "compact" }
+  }
+}
