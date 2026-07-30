@@ -67,9 +67,26 @@ Rejects if neither title nor description contains CS/software keywords: `softwar
 
 If a full-time/permanent keyword is present (cdi, permanent, full-time) without a matching internship keyword, the job is rejected.
 
-## Duplicate Detection
+## Two-Layer Duplicate Protection
 
-Five strategies are tried in order. The first strategy that returns a match wins.
+The pipeline has two independent duplicate-detection layers that operate at different stages.
+
+### Layer 1: Ingestion Duplicates (Phase 1)
+
+Caught during `JobIngestionService.ingest()` before a job enters the matching pipeline. Uses deterministic database constraints:
+
+- **`(source_id, normalized_hash)`** unique constraint on the `jobs` table — same source cannot ingest two jobs with identical normalized content.
+- **`(source_id, external_id)`** unique constraint on the `raw_jobs` table — same source cannot ingest two raw records with the same external identifier.
+
+When an ingestion duplicate is detected, the job is **discarded immediately** — it is never normalized, never written to the `jobs` table, and never reaches the Phase 2 matching pipeline. This is why a discovery run may show a high `duplicate_count` alongside an empty `duplicate_strategy_breakdown` — all duplicates were intercepted at the ingestion layer before Phase 2 could evaluate them.
+
+### Layer 2: Semantic Duplicates (Phase 2)
+
+Runs inside `JobMatchingService` after the job has been fully ingested, normalized, and written to the `jobs` table. Only jobs that pass hard filters proceed to semantic duplicate checking. Uses the 5-strategy pipeline below.
+
+## Duplicate Detection (Phase 2)
+
+Five strategies are tried in priority order. The first strategy that returns a match wins.
 
 | Priority | Strategy | Lookup | Matching Logic |
 |---|---|---|---|
