@@ -106,6 +106,31 @@ def test_tailor_service_returns_result(
     assert result.source_profile_version == "current"
 
 
+def test_tailor_service_attaches_quality_report(
+    mock_orchestrator: MagicMock,
+    sample_profile: MasterProfile,
+    sample_recommendation: Recommendation,
+) -> None:
+    svc = ResumeTailorService(orchestrator=mock_orchestrator)
+    result = svc.tailor(sample_profile, sample_recommendation, job_description="Python dev")
+    assert result.quality is not None
+    assert result.quality.document_type == "resume"
+    assert result.quality.overall_score >= 0.0
+    assert "resume" in result.to_dict()["quality"]["document_type"]
+
+
+def test_cover_letter_service_attaches_quality_report(
+    mock_orchestrator: MagicMock,
+    sample_profile: MasterProfile,
+    sample_recommendation: Recommendation,
+) -> None:
+    svc = CoverLetterService(orchestrator=mock_orchestrator)
+    result = svc.generate(sample_profile, sample_recommendation, company="Acme", recipient="HR")
+    assert result.quality is not None
+    assert result.quality.document_type == "cover_letter"
+    assert result.to_dict()["quality"]["document_type"] == "cover_letter"
+
+
 def test_tailor_calls_orchestrator(
     mock_orchestrator: MagicMock,
     sample_profile: MasterProfile,

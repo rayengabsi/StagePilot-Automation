@@ -7,6 +7,7 @@ from app.domain.ai.enums import AIFeature
 from app.domain.master_profile.entities import MasterProfile
 from app.domain.recommendation.entities import Recommendation
 from app.services.ai_orchestrator import AIOrchestrator
+from app.services.ai_tailoring_evaluator import AITailoringEvaluator
 
 
 class ResumeTailorService:
@@ -16,8 +17,13 @@ class ResumeTailorService:
     It must NOT invent any experience, degrees, skills, or dates.
     """
 
-    def __init__(self, orchestrator: AIOrchestrator) -> None:
+    def __init__(
+        self,
+        orchestrator: AIOrchestrator,
+        evaluator: AITailoringEvaluator | None = None,
+    ) -> None:
         self._orchestrator = orchestrator
+        self._evaluator = evaluator or AITailoringEvaluator()
 
     def tailor(
         self,
@@ -46,7 +52,15 @@ class ResumeTailorService:
             val = data.get(key)
             sections[key] = str(val) if val is not None else ""
 
+        quality = self._evaluator.evaluate_resume(
+            sections=sections,
+            profile=profile,
+            job_description=job_description,
+            matched_skills=recommendation.matched_detail.matched_skills,
+        )
+
         return TailoredResume(
             sections=sections,
             source_profile_version="current",
+            quality=quality,
         )

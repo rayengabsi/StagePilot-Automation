@@ -21,7 +21,8 @@ The layer is designed with a strict separation of concerns:
 
 ```
 app/domain/ai/                         <-- Domain: frozen dataclass entities, enums, error types
-app/config/ai.toml + ai_config.py      <-- Configuration: provider model, temperature, timeouts, retries, feature toggles
+app/domain/ai/quality.py               <-- Domain: quality report entities (QualityIssue, QualityReport, QualityCategory, QualitySeverity)
+app/config/ai.toml + ai_config.py      <-- Configuration: provider model, temperature, timeouts, retries, feature toggles, tailoring quality gate
 app/infrastructure/ai/                 <-- Infrastructure: AIProvider (ABC), GeminiProvider
 app/services/prompt_service.py         <-- Services: load, render, version-extract prompt templates
 app/services/output_validator.py       <-- Services: deterministic validation (empty, short, injection, JSON schema)
@@ -30,6 +31,7 @@ app/services/ai_orchestrator.py        <-- Services: single entry point for all 
 app/services/explanation_service.py    <-- Services: generate human-readable match explanations
 app/services/resume_tailor_service.py  <-- Services: tailor resume sections for a specific job
 app/services/cover_letter_service.py   <-- Services: generate personalized cover letter
+app/services/ai_tailoring_evaluator.py <-- Services: deterministic post-generation quality checks (no AI self-evaluation)
 app/services/email_draft_service.py    <-- Services: draft application email (subject, body, signature)
 prompts/*.md                           <-- 4 versioned prompt template files with front-matter metadata
 app/db/models/ai_usage.py              <-- Persistence: TokenUsageRecord ORM model
@@ -70,19 +72,24 @@ explanations = true
 resume_tailoring = true
 cover_letter = true
 email_draft = true
+
+[tailoring_quality]
+enabled = true
+minimum_quality_score = 60.0
 ```
 
 ### `app/config/ai_config.py`
 
-The TOML file is loaded into a frozen `AIConfig` dataclass with two nested configs:
+The TOML file is loaded into a frozen `AIConfig` dataclass with nested configs:
 
 | Class | Fields |
 |---|---|
 | `AIProviderConfig` | `name`, `model`, `temperature`, `max_output_tokens`, `timeout_seconds`, `retry_count` |
 | `AIFeaturesConfig` | `explanations`, `resume_tailoring`, `cover_letter`, `email_draft` |
-| `AIConfig` | `provider: AIProviderConfig`, `features: AIFeaturesConfig` |
+| `TailoringQualityConfig` | `enabled`, `minimum_quality_score` |
+| `AIConfig` | `provider: AIProviderConfig`, `features: AIFeaturesConfig`, `tailoring_quality: TailoringQualityConfig` |
 
-Loaded via `get_ai_config()` with `lru_cache(maxsize=1)`.
+Loaded via `get_ai_config()` with `lru_cache(maxsize=1)`. The `[tailoring_quality]` section is optional — a missing section falls back to the default config (enabled, threshold 60.0).
 
 ### `app/config/settings.py`
 
@@ -106,9 +113,18 @@ All entities are `@dataclass(frozen=True, slots=True)`:
 | `AIResponse` | Raw response from an AI provider | `text`, `provider`, `model`, `input_tokens`, `output_tokens`, `latency_ms` |
 | `TokenUsage` | Token usage record for persistence | `provider`, `model`, `feature`, `prompt_version`, `input_tokens`, `output_tokens`, `latency_ms`, `estimated_cost` |
 | `ExplanationResult` | Result of explanation generation | `explanation`, `recommendation_id` |
-| `TailoredResume` | Result of resume tailoring | `sections: dict[str, str]`, `source_profile_version` |
-| `CoverLetter` | Generated cover letter | `body`, `recipient_name`, `company_name` |
+| `TailoredResume` | Result of resume tailoring | `sections: dict[str, str]`, `source_profile_version`, `quality: QualityReport \| None` |
+| `CoverLetter` | Generated cover letter | `body`, `recipient_name`, `company_name`, `quality: QualityReport \| None` |
 | `EmailDraft` | Generated email draft | `subject`, `body`, `recipient`, `signature` |
+
+### Quality Entities (`app/domain/ai/quality.py`)
+
+| Entity | Purpose | Key Fields |
+|---|---|---|
+| `QualityIssue` | A single finding | `category`, `severity` (error/warning/info), `message` |
+| `QualityReport` | Full evaluation of one document | `document_type`, `category_scores: dict[str, float]`, `overall_score`, `overall_quality`, `needs_revision`, `issues` |
+
+`QualityReport.to_dict()` serializes the report for storage in the approval package snapshot. When a document is created outside the pipeline, `quality` is `None` (backward compatible).
 
 ### Enums (`app/domain/ai/enums.py`)
 
@@ -289,6 +305,51 @@ Calls `AIOrchestrator.generate_text()` with `prompt_name="cover_letter"` and `fe
 | `draft(cover_letter, company, job_title, recipient, candidate_name)` | Generate a full email draft with subject, body, and signature |
 
 Calls `AIOrchestrator.generate_json()` with `prompt_name="email_application"` and `feature=EMAIL_DRAFT`. Validates JSON response has required fields: `subject`, `body`, `signature`.
+
+---
+
+## AI Tailoring Quality Layer
+
+The tailoring quality layer scores generated documents **deterministically** — no AI model is used to evaluate AI output. `ResumeTailorService` and `CoverLetterService` accept an optional `AITailoringEvaluator` (default-constructed from `ai.toml`); each attaches a `QualityReport` to the returned entity via the `.quality` field.
+
+### AITailoringEvaluator (`app/services/ai_tailoring_evaluator.py`)
+
+| Method | Description |
+|---|---|
+| `evaluate_resume(sections, profile, job_description, matched_skills)` | Score a tailored resume against the job and profile facts |
+| `evaluate_cover_letter(body, profile, job_description, keywords, company)` | Score a cover letter body |
+
+Each document gets a per-category score (0–100), a weighted overall score, an overall quality label, and an `issues` tuple.
+
+### Check Categories
+
+| Category | Weight | What It Detects |
+|---|---|---|
+| `hallucination` | 25 | Invented skills (lexicon of known technologies), invented employers, education degrees without profile education/institution |
+| `keyword_coverage` | 20 | Job-description keywords (from job description + matched skills) missing from the document |
+| `factual_preservation` | 20 | Profile facts that must appear (skills + employers); missing candidate name in a cover letter (−10) |
+| `section_completeness` | 15 | Resume sections empty/too short (<10 chars); cover letter greeting/body/closing presence |
+| `ats_keyword_density` | 10 | ATS keyword density outside the ideal 0.03–0.08 range (too low or keyword stuffing) |
+| `grammar_format` | 10 | Placeholder text (TODO/lorem ipsum), control characters, terse (<4-word avg sentence) or run-on (>50-word) prose, double spaces |
+
+### Scoring & Gate
+
+- Weights: hallucination 25, keyword_coverage 20, factual_preservation 20, section_completeness 15, ats_keyword_density 10, grammar_format 10.
+- Hallucination penalty: 25 points per hallucination issue.
+- Overall levels: ≥85 `excellent`, ≥70 `good`, ≥60 `acceptable`, else `needs_revision`.
+- `needs_revision = overall_score < TailoringQualityConfig.minimum_quality_score` (default 60.0).
+- When `[tailoring_quality] enabled = false`, evaluation returns overall 100, no issues, and `needs_revision = False` (quality checks bypassed).
+
+### Pipeline Gate
+
+In `PipelineOrchestrator.run()`, after tailoring and cover-letter generation:
+
+1. Both reports are serialized into a `quality` dict (`{"resume": {...}, "cover_letter": {...}}`).
+2. `needs_revision` is checked (resume quality is the primary artifact; cover letter is considered when no resume is produced).
+3. Documents passing the gate are rendered and enqueued for human approval.
+4. Documents **below** the threshold are not rendered or enqueued; instead a revision package is created with `status = REVISION_REQUESTED`, empty document paths, and the quality report stored in the package snapshot. The pipeline result counts these as `needs_revision`.
+
+The quality report is persisted in the approval package snapshot under the `quality` key, so reviewers see exactly which checks failed.
 
 ---
 
@@ -476,7 +537,7 @@ Each AI feature can be independently enabled or disabled in `ai.toml` `[features
 
 ## Test Coverage
 
-46 new tests across 5 test files:
+96 new tests across 8 test files:
 
 | Test File | Tests | Coverage |
 |---|---|---|
@@ -484,7 +545,10 @@ Each AI feature can be independently enabled or disabled in `ai.toml` `[features
 | `test_output_validator.py` | 16 | Empty/short rejection, injection detection, JSON schema validation, edge cases |
 | `test_token_tracker.py` | 6 | Track persist, get_usage, cost estimation, error handling |
 | `test_ai_orchestrator.py` | 7 | Full pipeline, provider selection, config errors |
-| `test_ai_services.py` | 8 | All 4 services: returns correct types, calls orchestrator with correct params |
+| `test_ai_services.py` | 10 | All 4 services: returns correct types, calls orchestrator with correct params, quality report attachment |
+| `test_ai_tailoring_evaluator.py` | 23 | Per-category checks, weighted scoring, hallucination detection, disabled config, level thresholds |
+| `test_ai_quality_entities.py` | 4 | QualityReport/QualityIssue serialization |
+| `test_ai_tailoring_pipeline.py` | 3 | Integration: good output enqueued, below-threshold output marked REVISION_REQUESTED, disabled gate bypass |
 
 All tests use `MagicMock` for provider/orchestrator — no real API keys or network access required.
 

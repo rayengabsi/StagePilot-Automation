@@ -5,13 +5,19 @@ from app.domain.ai.enums import AIFeature
 from app.domain.master_profile.entities import MasterProfile
 from app.domain.recommendation.entities import Recommendation
 from app.services.ai_orchestrator import AIOrchestrator
+from app.services.ai_tailoring_evaluator import AITailoringEvaluator
 
 
 class CoverLetterService:
     """Generate a personalized cover letter using AI."""
 
-    def __init__(self, orchestrator: AIOrchestrator) -> None:
+    def __init__(
+        self,
+        orchestrator: AIOrchestrator,
+        evaluator: AITailoringEvaluator | None = None,
+    ) -> None:
         self._orchestrator = orchestrator
+        self._evaluator = evaluator or AITailoringEvaluator()
 
     def generate(
         self,
@@ -43,8 +49,16 @@ class CoverLetterService:
             feature=AIFeature.COVER_LETTER,
         )
 
+        quality = self._evaluator.evaluate_cover_letter(
+            body=body,
+            profile=profile,
+            keywords=matched,
+            company=company,
+        )
+
         return CoverLetter(
             body=body,
             recipient_name=recipient or None,
             company_name=company or None,
+            quality=quality,
         )

@@ -3,7 +3,12 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from app.config.ai_config import AIConfig, AIFeaturesConfig, AIProviderConfig
+from app.config.ai_config import (
+    AIConfig,
+    AIFeaturesConfig,
+    AIProviderConfig,
+    TailoringQualityConfig,
+)
 from app.config.settings import Settings
 from app.domain.ai.entities import AIResponse
 from app.domain.ai.enums import AIFeature
@@ -28,6 +33,10 @@ def ai_config() -> AIConfig:
             resume_tailoring=True,
             cover_letter=True,
             email_draft=True,
+        ),
+        tailoring_quality=TailoringQualityConfig(
+            enabled=True,
+            minimum_quality_score=60.0,
         ),
     )
 
@@ -238,6 +247,10 @@ def test_orchestrator_rejects_unsupported_provider(mock_session: MagicMock) -> N
             resume_tailoring=True,
             cover_letter=True,
             email_draft=True,
+        ),
+        tailoring_quality=TailoringQualityConfig(
+            enabled=True,
+            minimum_quality_score=60.0,
         ),
     )
     settings = Settings(gemini_api_key="test-key")

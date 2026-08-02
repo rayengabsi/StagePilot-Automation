@@ -11,3 +11,7 @@ explanations = true
 resume_tailoring = true
 cover_letter = true
 email_draft = true
+
+[tailoring_quality]
+enabled = true
+minimum_quality_score = 60.0

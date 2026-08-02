@@ -621,3 +621,34 @@ a `Why:` summary line; Telegram application messages include `*Confidence:*` and
 `*Why:*`. A reserved `ai` weight slot (default 0.0) lets a future LLM contribution be
 blended into the weighted breakdown via configuration alone. See
 [`docs/phase-4-recommendation-engine.md`](docs/phase-4-recommendation-engine.md).
+
+## Phase 11 — AI Tailoring Quality Layer
+
+The AI Tailoring Quality Layer adds a deterministic quality gate on top of the Phase 5
+AI orchestration without redesigning the provider abstraction or the prompts. `AIProvider`
+interface, orchestrator, and prompt files are untouched — all checks are rule-based.
+
+- **Quality report** — `AITailoringEvaluator` (`app/services/ai_tailoring_evaluator.py`)
+  scores each generated document in six categories: `hallucination` (25), `keyword_coverage`
+  (20), `factual_preservation` (20), `section_completeness` (15), `ats_keyword_density` (10),
+  `grammar_format` (10). It detects invented skills/employers/degrees, missing job keywords,
+  missing profile facts, empty sections, placeholders/control characters/terse prose, and ATS
+  keyword density outside the ideal 0.03–0.08 band.
+- **Structured output** — `QualityReport`/`QualityIssue` live in
+  `app/domain/ai/quality.py` (`document_type`, per-category scores, overall score, quality
+  level, `needs_revision`, issues). `TailoredResume` and `CoverLetter` carry an optional
+  `quality` field; `None` when not evaluated (backward compatible).
+- **Config** — `TailoringQualityConfig` (`enabled`, `minimum_quality_score = 60.0`) under the
+  `[tailoring_quality]` section of `ai.toml`; a missing section defaults to enabled/60.0.
+- **Pipeline gate** — `PipelineOrchestrator` persists both reports in the approval package
+  snapshot under the `quality` key. Documents scoring below the threshold are **not** rendered
+  or enqueued; instead a revision package is created with `status = REVISION_REQUESTED`,
+  empty document paths, and the quality report attached (`ApprovalService.create_package`
+  gained an optional `status` argument; `build_snapshot` gained an optional `quality`). The
+  run result counts `needs_revision`. Disabling the gate bypasses evaluation entirely.
+- **No AI self-evaluation** — evaluation is fully deterministic (regex, vocabulary, token
+  counting), matching the Phase 5 "AI is advisory only" constraint: quality never changes
+  scores or hard rules, it only routes low-quality output back for revision.
+- **Tests** — 32 new tests (23 evaluator, 4 quality entities, 2 service quality attachment,
+  3 pipeline integration) bring the suite to 620 passing with ruff clean. See
+  [`docs/phase-5-ai-intelligence-layer.md`](docs/phase-5-ai-intelligence-layer.md).

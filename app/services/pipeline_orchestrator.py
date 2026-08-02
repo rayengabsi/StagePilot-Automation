@@ -7,10 +7,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.config.ai_config import get_ai_config
 from app.config.approval_config import ApprovalConfig, get_approval_config
 from app.config.settings import Settings, get_settings
 from app.db.models.jobs import Job as JobRecord
 from app.db.models.pipeline import PipelineRunRecord
+from app.domain.ai.entities import CoverLetter
+from app.domain.approval.enums import ApprovalState
 from app.domain.approval.package import (
     build_documents_json,
     build_snapshot,
@@ -49,6 +52,7 @@ class PipelineRunResult:
     ai_failed: int = 0
     rendering_completed: int = 0
     rendering_failed: int = 0
+    needs_revision: int = 0
     packages_created: int = 0
     queued: int = 0
     telegram_sent: bool = False
@@ -108,6 +112,7 @@ class PipelineOrchestrator:
         ai_fail = 0
         render_ok = 0
         render_fail = 0
+        needs_revision = 0
         packages_created = 0
         queued = 0
         profile = self._load_profile()
@@ -124,7 +129,32 @@ class PipelineOrchestrator:
                 ai_fail += 1
                 continue
             ai_ok += 1
-            explanation_text, tailored, cover_letter_body = ai_result
+            explanation_text, tailored, cover = ai_result
+            cover_letter_body = cover.body
+            quality_data = self._quality_data(tailored, cover)
+            recommendation_data = self._build_recommendation_data(rec, job_row)
+            email_draft = {
+                "subject": f"Application for {job_row.title} at {job_row.company or 'Company'}",
+                "body": cover_letter_body,
+            }
+            tailored_sections = tailored.sections if tailored else None
+
+            # Quality gate: below-threshold output is marked for revision and
+            # never rendered or placed in the approval queue.
+            if self._needs_revision(quality_data):
+                needs_revision += 1
+                self._create_revision_package(
+                    profile=profile,
+                    rec=rec,
+                    job_row=job_row,
+                    explanation_text=explanation_text,
+                    tailored_sections=tailored_sections,
+                    cover_letter_body=cover_letter_body,
+                    email_draft=email_draft,
+                    quality_data=quality_data,
+                    errors=errors,
+                )
+                continue
 
             # Step 7: Rendering
             render_paths = self._run_rendering(
@@ -137,22 +167,18 @@ class PipelineOrchestrator:
             pdf_paths, docx_paths = render_paths
 
             # Step 8: Create ApplicationPackage
-            recommendation_data = self._build_recommendation_data(rec, job_row)
-            email_draft = {
-                "subject": f"Application for {job_row.title} at {job_row.company or 'Company'}",
-                "body": cover_letter_body,
-            }
             snapshot_json = build_snapshot(
                 recommendation_data=recommendation_data,
                 profile_data=profile.to_dict() if profile else {},
                 explanation=explanation_text,
-                tailored_resume={"sections": tailored.sections} if tailored else None,
+                tailored_resume={"sections": tailored_sections} if tailored_sections else None,
                 cover_letter_body=cover_letter_body,
                 email_draft=email_draft,
                 pdf_paths=[str(p) for p in pdf_paths],
                 docx_paths=[str(p) for p in docx_paths],
                 template_name="modern",
                 theme_name="default",
+                quality=quality_data,
             )
             documents_json = build_documents_json(
                 resume_pdf=str(pdf_paths[0]) if pdf_paths else "",
@@ -230,6 +256,7 @@ class PipelineOrchestrator:
             ai_failed=ai_fail,
             rendering_completed=render_ok,
             rendering_failed=render_fail,
+            needs_revision=needs_revision,
             packages_created=packages_created,
             queued=queued,
             telegram_sent=telegram_sent,
@@ -283,10 +310,10 @@ class PipelineOrchestrator:
         rec: Recommendation,
         job_row: JobRecord,
         errors: list[dict[str, Any]],
-    ) -> tuple[str, Any, str] | None:
+    ) -> tuple[str, Any, CoverLetter] | None:
         try:
             orchestrator = AIOrchestrator(
-                ai_config=None,  # type: ignore[arg-type]
+                ai_config=get_ai_config(),
                 settings=self._settings,
                 session=self._session,
             )
@@ -309,7 +336,7 @@ class PipelineOrchestrator:
                 rec,
                 company=job_row.company or "",
             )
-            return explanation.explanation, tailored, cover.body
+            return explanation.explanation, tailored, cover
         except Exception as exc:
             errors.append(
                 {
@@ -319,6 +346,84 @@ class PipelineOrchestrator:
                 }
             )
             return None
+
+    def _quality_data(
+        self,
+        tailored: Any,  # noqa: ANN401
+        cover: Any,  # noqa: ANN401
+    ) -> dict[str, Any] | None:
+        """Combine per-document quality reports into a snapshot-safe dict."""
+        data: dict[str, Any] = {}
+        if tailored is not None and getattr(tailored, "quality", None) is not None:
+            data["resume"] = tailored.quality.to_dict()
+        if cover is not None and getattr(cover, "quality", None) is not None:
+            data["cover_letter"] = cover.quality.to_dict()
+        return data or None
+
+    def _needs_revision(self, quality_data: dict[str, Any] | None) -> bool:
+        """Gate on the tailored resume (primary artifact), else the cover letter."""
+        if not quality_data:
+            return False
+        resume = quality_data.get("resume")
+        if resume is not None:
+            return bool(resume.get("needs_revision"))
+        cover = quality_data.get("cover_letter")
+        return bool(cover.get("needs_revision")) if cover else False
+
+    def _create_revision_package(
+        self,
+        profile: Any,  # noqa: ANN401
+        rec: Recommendation,
+        job_row: JobRecord,
+        explanation_text: str,
+        tailored_sections: dict[str, str] | None,
+        cover_letter_body: str,
+        email_draft: dict[str, str],
+        quality_data: dict[str, Any] | None,
+        errors: list[dict[str, Any]],
+    ) -> None:
+        """Persist a package marked for revision instead of auto-approval."""
+        try:
+            recommendation_data = self._build_recommendation_data(rec, job_row)
+            snapshot_json = build_snapshot(
+                recommendation_data=recommendation_data,
+                profile_data=profile.to_dict() if profile else {},
+                explanation=explanation_text,
+                tailored_resume={"sections": tailored_sections} if tailored_sections else None,
+                cover_letter_body=cover_letter_body,
+                email_draft=email_draft,
+                pdf_paths=[],
+                docx_paths=[],
+                template_name="modern",
+                theme_name="default",
+                quality=quality_data,
+            )
+            documents_json = build_documents_json()
+            package = create_application_package(
+                recommendation_id=rec.job_id,
+                job_id=rec.job_id,
+                profile_id=profile.id if profile else 0,
+                final_score=rec.final_score,
+                snapshot_json=snapshot_json,
+                documents_json=documents_json,
+                template_name="modern",
+                theme_name="default",
+                priority=int(rec.final_score),
+                status=ApprovalState.REVISION_REQUESTED,
+            )
+            approval_svc = ApprovalService(
+                self._session,
+                queue_strategy=self._approval_config.queue_strategy,
+            )
+            approval_svc.create_package(package)
+        except Exception as exc:
+            errors.append(
+                {
+                    "step": "revision",
+                    "job_id": rec.job_id,
+                    "error": str(exc),
+                }
+            )
 
     def _run_rendering(
         self,

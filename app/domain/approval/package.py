@@ -21,6 +21,7 @@ def build_snapshot(
     template_name: str,
     theme_name: str,
     config_version: str = "1.0.0",
+    quality: dict[str, Any] | None = None,
 ) -> str:
     """Build an immutable JSON snapshot of the application."""
     snapshot: dict[str, Any] = {
@@ -39,6 +40,8 @@ def build_snapshot(
         "config_version": config_version,
         "timestamp": datetime.now(UTC).isoformat(),
     }
+    if quality is not None:
+        snapshot["quality"] = quality
     return json.dumps(snapshot, sort_keys=True, default=str)
 
 
@@ -79,6 +82,7 @@ def create_application_package(
     template_name: str = "modern",
     theme_name: str = "default",
     priority: int = 0,
+    status: ApprovalState = ApprovalState.NEW,
 ) -> ApplicationPackage:
     """Create a new ApplicationPackage with a computed hash."""
     app_hash = compute_hash(snapshot_json, documents_json)
@@ -94,7 +98,7 @@ def create_application_package(
         profile_version=profile_version,
         template_name=template_name,
         theme_name=theme_name,
-        status=ApprovalState.NEW,
+        status=status,
         priority=priority,
         created_at=now,
         updated_at=now,

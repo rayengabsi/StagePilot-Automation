@@ -27,15 +27,23 @@ class AIFeaturesConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class TailoringQualityConfig:
+    enabled: bool
+    minimum_quality_score: float
+
+
+@dataclass(frozen=True, slots=True)
 class AIConfig:
     provider: AIProviderConfig
     features: AIFeaturesConfig
+    tailoring_quality: TailoringQualityConfig
 
     @classmethod
     def load(cls, path: Path = AI_CONFIG_PATH) -> AIConfig:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
         prov = raw["provider"]
         feat = raw["features"]
+        quality = raw.get("tailoring_quality", {})
         return cls(
             provider=AIProviderConfig(
                 name=prov["name"],
@@ -50,6 +58,10 @@ class AIConfig:
                 resume_tailoring=bool(feat["resume_tailoring"]),
                 cover_letter=bool(feat["cover_letter"]),
                 email_draft=bool(feat["email_draft"]),
+            ),
+            tailoring_quality=TailoringQualityConfig(
+                enabled=bool(quality.get("enabled", True)),
+                minimum_quality_score=float(quality.get("minimum_quality_score", 60.0)),
             ),
         )
 

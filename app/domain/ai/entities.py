@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.domain.ai.enums import AIFeature
+from app.domain.ai.quality import QualityReport
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,11 +59,13 @@ class ExplanationResult:
 class TailoredResume:
     sections: dict[str, str]
     source_profile_version: str
+    quality: QualityReport | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "sections": self.sections,
             "source_profile_version": self.source_profile_version,
+            "quality": self.quality.to_dict() if self.quality else None,
         }
 
 
@@ -71,12 +74,14 @@ class CoverLetter:
     body: str
     recipient_name: str | None = None
     company_name: str | None = None
+    quality: QualityReport | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "body": self.body,
             "recipient_name": self.recipient_name,
             "company_name": self.company_name,
+            "quality": self.quality.to_dict() if self.quality else None,
         }
 
 
