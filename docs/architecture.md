@@ -180,6 +180,30 @@ stagepilot profile delete <id>
 
 `app/utils/pii.py` provides `mask_email()`, `mask_phone()`, `mask_url()`, and `mask_profile_dict()` for safe display. CLI `show` and `list` commands mask PII automatically. Stored data is never modified.
 
+### Normalization Utilities
+
+`app/utils/normalization.py` and `app/utils/text_cleaning.py` provide pure, deterministic helpers used by the parsers and the normalizer:
+
+- `text_cleaning.clean()` — preprocesses raw extracted text (PDF `(cid:N)` artifacts, Unicode/ASCII bullets, broken line endings, NBSP/zero-width spaces, en/em dashes, control chars, collapsed blank lines).
+- `normalization.canonical_technology()` — maps technology aliases to canonical names (e.g. `nodejs` → `Node.js`, `postgres` → `PostgreSQL`).
+- `normalization.normalize_email()` / `normalize_url()` — canonical email and URL forms (scheme added, host lowercased, trailing slash stripped).
+- `normalization.is_plausible_url()` — a known-TLD allowlist so tech suffixes like `Node.js` are never mistaken for bare URLs.
+- `normalization.detect_degree()` — detects degree levels from full names and abbreviations (`B.S.`, `BSc`, `M.Sc.`, `MBA`, ...).
+- `normalization.looks_like_role()` / `is_work_mode()` / `clean_company_name()` — classification and cleaning helpers.
+
+The `PDFParser`, `DocxParser`, and `MarkdownParser` all run `text_cleaning.clean()` on extracted text before returning it, so the normalizer always receives consistent input.
+
+### Extraction Quality Benchmark
+
+Deterministic resume fixtures (ATS, modern tech, French Europass, academic, full-stack, contact-only) live in `tests/benchmark/fixtures.py` with per-fixture ground truth. `tests/benchmark/quality_report.py` runs the normalizer over every fixture and reports per-category and overall extraction accuracy:
+
+```text
+python -m tests.benchmark.quality_report
+```
+
+`tests/benchmark/test_benchmark.py` enforces the target thresholds (e.g. email/phone/LinkedIn/GitHub 100%, experience ≥ 98%, education ≥ 99%, overall ≥ 95%) so extraction regressions fail CI.
+
+
 ## Phase 4 Recommendation Engine
 
 Phase 4 implements the Recommendation Engine -- a deterministic matching pipeline that scores jobs against the master profile using configurable hard rules, 8-category similarity scoring, and weighted aggregation.

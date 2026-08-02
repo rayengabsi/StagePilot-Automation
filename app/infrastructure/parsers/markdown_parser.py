@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.infrastructure.parsers.abstract import ProfileParser
+from app.utils.text_cleaning import clean as clean_text
 
 
 class MarkdownParser(ProfileParser):
@@ -23,4 +24,4 @@ class MarkdownParser(ProfileParser):
             if stripped.startswith("---"):
                 continue
             lines.append(stripped)
-        return "\n".join(lines)
+        return clean_text("\n".join(lines))

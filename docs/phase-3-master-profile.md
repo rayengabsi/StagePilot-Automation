@@ -121,16 +121,21 @@ Resume (PDF / DOCX / Markdown)
     |   Extracts raw text from all pages/paragraphs
     v
  3. ProfileNormalizer.normalize(raw_text)
-    |   a. _split_sections() — detect section headers for
+    |   a. clean_text() — preprocess raw text: PDF (cid:N) artifacts,
+    |      bullets, CRLF/lone-CR, NBSP/zero-width spaces, en/em dashes,
+    |      control chars, collapsed blank lines (app/utils/text_cleaning.py)
+    |
+    |   b. _split_sections() — detect section headers for
     |      education, experience, projects, skills, languages,
     |      certifications, summary, awards, publications
-    |      (case-insensitive, English + French keywords)
+    |      (case-insensitive, English + French keywords). Blank lines
+    |      within a section are preserved so multi-entry blocks split.
     |
-    |   b. _extract_personal_info() — first line = name,
-    |      regex for email, phone, URLs; nationality detection
-    |      via keyword matching in first 20 lines
+    |   c. _extract_personal_info() — name (plausibility-checked), email,
+    |      phone (URLs/years excluded), location, nationality, summary,
+    |      and contact URLs (LinkedIn/GitHub/portfolio, labeled or bare)
     |
-    |   c. _parse_education / _experience / _projects / _skills
+    |   d. _parse_education / _experience / _projects / _skills
     |      _languages / _certifications / _awards / _publications
     |
     |   Returns: MasterProfile (frozen dataclass)
@@ -387,6 +392,56 @@ PII is masked only when displayed. Stored data, exported files, and internal ser
 | **Utils** | Python stdlib | Nothing |
 
 ---
+
+## Extraction Quality
+
+### Normalization Utilities
+
+`app/utils/normalization.py` and `app/utils/text_cleaning.py` are pure, stdlib-only helpers shared by the parsers and the normalizer:
+
+| Helper | Purpose |
+|---|---|
+| `text_cleaning.clean()` | Preprocess raw extracted text: `(cid:N)` artifacts, Unicode/ASCII bullets, CRLF/lone-CR, NBSP/zero-width spaces, en/em dashes, control chars, collapsed blank-line runs |
+| `canonical_technology()` | Map technology aliases to canonical names (`nodejs` → `Node.js`, `postgres` → `PostgreSQL`) |
+| `normalize_email()` / `normalize_url()` | Canonical email and URL forms (scheme added, host lowercased, trailing slash stripped) |
+| `is_plausible_url()` | Known-TLD allowlist so tech suffixes like `Node.js` are never mistaken for bare URLs |
+| `detect_degree()` | Degree-level detection from full names and abbreviations (`B.S.`, `BSc`, `M.Sc.`, `MBA`, ...) |
+| `looks_like_role()` / `is_work_mode()` / `clean_company_name()` | Line classification and company-name cleaning |
+
+All three parsers run `text_cleaning.clean()` on extracted text before returning it.
+
+### Extraction Improvements
+
+The normalizer targets high completeness on real-world ATS resumes:
+
+- **Contact info** — email (deduped, lowercased), phone (strongest candidate; isolated years and digit-heavy URLs excluded), LinkedIn/GitHub/portfolio from labels (`LinkedIn: ...`) or bare URLs, location from `Location:` labels or plain `City, State` lines, nationality keywords.
+- **URL safety** — bare-URL detection uses a known-TLD allowlist, so `Node.js`, `Next.js`, and similar tech names are never treated as URLs; digit-heavy links (ORCID, DOIs) never shadow a real phone number.
+- **Dates** — English and French month names + 4-digit years; `present`/`current`/`now`/`ongoing`/`Présent`/`en cours` map to `is_current`.
+- **Blocks** — blank-line-separated entries inside a section are preserved and parsed independently (multiple experience/education/project entries).
+- **Degrees** — full names and abbreviations (`B.S.`, `BSc`, `M.Sc.`, `MBA`) normalize to a display label; the field of study is extracted by stripping the degree label.
+- **Experience** — `Company | Title | Location` layouts, `Full-Time | Remote` work modes, per-line and comma-separated technology lists.
+- **Projects** — name + URL + technologies (`Name | Python, Django`, `Built with: ...`) with deduplicated canonical technology names.
+- **Languages** — CEFR levels (`C1`→Advanced, `C2`→Fluent) and keyword levels (`Native`, `Fluent`, ...) with duplicate removal.
+- **Certifications** — name + issuer + date; a standalone issuer line (`Linux Foundation`) attaches to the previous certification.
+- **Publications** — citation format (`Author (year). Title. Publisher.`), publisher detection, and URL capture; URL-only blocks are skipped.
+
+### Benchmark
+
+Deterministic resume fixtures with per-fixture ground truth live in `tests/benchmark/`:
+
+| File | Contents |
+|---|---|
+| `tests/benchmark/fixtures.py` | Six generic resumes (US ATS, modern tech, French Europass, academic, full-stack, contact-only) with expected extraction |
+| `tests/benchmark/quality_report.py` | Runs the normalizer over all fixtures and prints per-category + overall accuracy |
+| `tests/benchmark/test_benchmark.py` | Regression guards enforcing target thresholds |
+
+Run the report:
+
+```bash
+python -m tests.benchmark.quality_report
+```
+
+Target thresholds enforced in CI: email/phone/LinkedIn/GitHub 100%, portfolio ≥ 95%, experience ≥ 98%, education ≥ 99%, languages/projects/certifications ≥ 95%, overall ≥ 95%.
 
 ## Migration
 

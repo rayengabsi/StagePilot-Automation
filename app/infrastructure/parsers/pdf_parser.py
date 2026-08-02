@@ -5,6 +5,7 @@ from pathlib import Path
 import pdfplumber
 
 from app.infrastructure.parsers.abstract import ProfileParser
+from app.utils.text_cleaning import clean as clean_text
 
 
 class PDFParser(ProfileParser):
@@ -40,6 +41,6 @@ class PDFParser(ProfileParser):
                         pages.append(text)
             if not pages:
                 return ""
-            return "\n\n".join(pages)
+            return clean_text("\n\n".join(pages))
         except Exception as exc:
             raise ValueError(f"Failed to parse PDF {resolved}: {exc}") from exc

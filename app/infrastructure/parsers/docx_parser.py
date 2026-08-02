@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.infrastructure.parsers.abstract import ProfileParser
+from app.utils.text_cleaning import clean as clean_text
 
 
 class DocxParser(ProfileParser):
@@ -20,4 +21,4 @@ class DocxParser(ProfileParser):
 
         doc = Document(str(file_path))
         paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-        return "\n\n".join(paragraphs)
+        return clean_text("\n\n".join(paragraphs))
