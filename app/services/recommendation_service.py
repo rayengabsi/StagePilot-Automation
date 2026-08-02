@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,14 +13,22 @@ from app.db.models.recommendation import RecommendationFeedbackRecord, Recommend
 from app.domain.master_profile.entities import MasterProfile
 from app.domain.master_profile.errors import ProfileNotFoundError
 from app.domain.recommendation.aggregator import ScoreAggregator
+from app.domain.recommendation.confidence import ConfidenceCalculator
 from app.domain.recommendation.entities import (
     HardRuleResult,
     MatchedDetail,
     Recommendation,
     RecommendationFeedback,
+    RecommendationInsights,
     ScoreBreakdown,
+    WeightedBreakdown,
+    WeightedComponent,
 )
-from app.domain.recommendation.enums import FeedbackReason, RecommendationStatus
+from app.domain.recommendation.enums import (
+    ConfidenceLevel,
+    FeedbackReason,
+    RecommendationStatus,
+)
 from app.domain.recommendation.errors import ProfileNotReadyError
 from app.domain.recommendation.matcher import HardRuleMatcher
 from app.domain.recommendation.profile_matcher import ProfileMatcher
@@ -77,8 +87,12 @@ class RecommendationService:
                     score_breakdown=rec.score_breakdown,
                     hard_rule_result=rec.hard_rule_result,
                     created_at=rec.created_at,
+                    weighted_breakdown=rec.weighted_breakdown,
+                    insights=rec.insights,
                 )
             )
+
+        ranked = self._assign_confidence(ranked)
 
         self._persist_recommendations(ranked)
 
@@ -153,6 +167,28 @@ class RecommendationService:
         result = self._session.execute(stmt).scalars().all()
         return list(result)
 
+    @staticmethod
+    def _assign_confidence(recommendations: list[Recommendation]) -> list[Recommendation]:
+        """Derive confidence for every recommendation from the run's score distribution."""
+        scores = [rec.final_score for rec in recommendations]
+        confidence_map = ConfidenceCalculator.assign(scores)
+        ranked: list[Recommendation] = []
+        for rec in recommendations:
+            insights = rec.insights or RecommendationInsights()
+            level = confidence_map.get(rec.final_score, ConfidenceLevel.LOW)
+            ranked.append(
+                replace(
+                    rec,
+                    insights=RecommendationInsights(
+                        confidence=level,
+                        reasons=insights.reasons,
+                        summary=insights.summary,
+                        ai_contribution=insights.ai_contribution,
+                    ),
+                )
+            )
+        return ranked
+
     def _persist_recommendations(self, recommendations: list[Recommendation]) -> None:
         for rec in recommendations:
             record = RecommendationRecord(
@@ -170,6 +206,10 @@ class RecommendationService:
                 score_breakdown_json=rec.score_breakdown.to_dict(),
                 hard_rule_passed=rec.hard_rule_result.passed,
                 hard_rule_reasons=list(rec.hard_rule_result.reasons),
+                weighted_breakdown_json=(
+                    rec.weighted_breakdown.to_dict() if rec.weighted_breakdown else None
+                ),
+                insights_json=rec.insights.to_dict() if rec.insights else None,
             )
             self._session.add(record)
         self._session.flush()
@@ -196,4 +236,40 @@ class RecommendationService:
                 reasons=tuple(r.hard_rule_reasons or []),
             ),
             created_at=str(r.created_at) if r.created_at else "",
+            weighted_breakdown=_weighted_breakdown_from_dict(r.weighted_breakdown_json),
+            insights=_insights_from_dict(r.insights_json),
         )
+
+
+def _weighted_breakdown_from_dict(data: dict | None) -> WeightedBreakdown | None:
+    """Rehydrate a WeightedBreakdown from its persisted JSON form."""
+    if not data:
+        return None
+    components = tuple(
+        WeightedComponent(
+            category=comp["category"],
+            score=float(comp.get("score", 0.0)),
+            weight=float(comp.get("weight", 0.0)),
+            weighted_score=float(comp.get("weighted_score", 0.0)),
+            contribution=float(comp.get("contribution", 0.0)),
+        )
+        for comp in data.get("components", [])
+    )
+    return WeightedBreakdown(
+        final_score=float(data.get("final_score", 0.0)),
+        total_weight=float(data.get("total_weight", 0.0)),
+        components=components,
+    )
+
+
+def _insights_from_dict(data: dict | None) -> RecommendationInsights | None:
+    """Rehydrate RecommendationInsights from its persisted JSON form."""
+    if not data:
+        return None
+    confidence = data.get("confidence")
+    return RecommendationInsights(
+        confidence=ConfidenceLevel(confidence) if confidence else ConfidenceLevel.LOW,
+        reasons=tuple(data.get("reasons", [])),
+        summary=data.get("summary", ""),
+        ai_contribution=float(data.get("ai_contribution", 0.0)),
+    )

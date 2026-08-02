@@ -592,3 +592,32 @@ stagepilot sources add-rss | add-greenhouse | add-lever | add-ashby |
            add-wellfound | add-company
 stagepilot sources list | remove | enable | disable | refresh | health | test | benchmark
 ```
+
+## Phase 10 — Recommendation Intelligence Layer
+
+The recommendation engine produces explainable, configurable, personalized output
+without redesigning the Phase 4 pipeline. Every recommendation carries:
+
+- **Weighted breakdown** — `WeightedBreakdown` records `final_score`, `total_weight`,
+  and per-category `WeightedComponent`s (score, weight, weighted_score, contribution).
+  `ScoreAggregator.aggregate_weighted()` builds it from the 13 configurable weights in
+  `matching.toml` (`skills`, `technologies`, `education`, `experience`, `languages`,
+  `projects`, `location`, `preferences`, `classification`, `remote`, `seniority`,
+  `hard_filters`, `ai`); the scalar `aggregate()` is unchanged.
+- **Confidence levels** — `ConfidenceCalculator` (`app/domain/recommendation/confidence.py`)
+  assigns `VERY_HIGH`/`HIGH`/`MEDIUM`/`LOW` from quartiles of the run's score
+  distribution, falling back to magnitude when scores are degenerate.
+- **Deterministic reasoning** — `ReasoningBuilder` (`app/domain/recommendation/reasoning.py`)
+  produces human-readable `reasons` and a `summary` from the breakdown and match detail
+  (e.g. "Strong FastAPI and Python match", "Missing Docker experience",
+  "Location mismatch"). No AI is required.
+
+`Recommendation` extends with optional `weighted_breakdown` and `insights`; the
+`RecommendationRecord` persists them as `weighted_breakdown_json` and `insights_json`
+(migration `20260802_p10`). `RecommendationService` re-assigns confidence from the full
+run distribution before persistence. Hard-rule-rejected recommendations receive the
+same explanation surface. The `stagepilot recommend` table shows a Confidence column and
+a `Why:` summary line; Telegram application messages include `*Confidence:*` and
+`*Why:*`. A reserved `ai` weight slot (default 0.0) lets a future LLM contribution be
+blended into the weighted breakdown via configuration alone. See
+[`docs/phase-4-recommendation-engine.md`](docs/phase-4-recommendation-engine.md).

@@ -23,12 +23,17 @@ def format_application_message(
         lines.append(f"*Position:* {job_data.get('title', 'N/A')}")
         lines.append(f"*Location:* {job_data.get('location', 'N/A')}")
         lines.append(f"*Final Score:* {package.final_score:.1f}")
+        insights = rec.get("insights") or {}
+        if insights.get("confidence"):
+            lines.append(f"*Confidence:* {insights['confidence']}")
         matched = rec.get("matched_skills", [])
         missing = rec.get("missing_skills", [])
         if matched:
             lines.append(f"*Matched Skills:* {', '.join(matched[:8])}")
         if missing:
             lines.append(f"*Missing Skills:* {', '.join(missing[:5])}")
+        if insights.get("summary"):
+            lines.append(f"*Why:* {insights['summary']}")
         explanation = snapshot.get("explanation", "")
         if explanation:
             truncated = explanation[:300]

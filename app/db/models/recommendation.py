@@ -26,6 +26,8 @@ class RecommendationRecord(Base):
     score_breakdown_json: Mapped[dict[str, float] | None] = mapped_column(JSON, nullable=True)
     hard_rule_passed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     hard_rule_reasons: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    weighted_breakdown_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    insights_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

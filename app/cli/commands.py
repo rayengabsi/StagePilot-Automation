@@ -1236,19 +1236,28 @@ def _handle_recommend(args: argparse.Namespace, settings: Settings) -> int:
         if not output:
             print("No recommendations found.")
             return 0
-        print(f"{'Rank':<6}{'Score':<8}{'Job ID':<8}{'Status':<12}{'Matched Skills'}")
-        print("-" * 80)
+        print(
+            f"{'Rank':<6}{'Score':<8}{'Confidence':<12}{'Job ID':<8}"
+            f"{'Status':<12}{'Matched Skills'}"
+        )
+        print("-" * 96)
         for rec in output:
             matched = ", ".join(rec["matched_detail"]["matched_skills"][:5])
             if len(rec["matched_detail"]["matched_skills"]) > 5:
                 matched += "..."
+            confidence = (
+                rec.get("insights", {}).get("confidence", "n/a") if rec.get("insights") else "n/a"
+            )
             print(
                 f"{rec['ranking_position']:<6}"
                 f"{rec['final_score']:<8.1f}"
+                f"{confidence:<12}"
                 f"{rec['job_id']:<8}"
                 f"{rec['status']:<12}"
                 f"{matched}"
             )
+            if rec.get("insights") and rec["insights"].get("summary"):
+                print(f"    Why: {rec['insights']['summary']}")
     return 0
 
 

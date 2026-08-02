@@ -380,7 +380,7 @@ class PipelineOrchestrator:
             return None
 
     def _build_recommendation_data(self, rec: Recommendation, job_row: JobRecord) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "job": {
                 "id": rec.job_id,
                 "title": job_row.title or "",
@@ -395,6 +395,11 @@ class PipelineOrchestrator:
                 rec.score_breakdown.to_dict() if hasattr(rec.score_breakdown, "to_dict") else {}
             ),
         }
+        if rec.weighted_breakdown is not None:
+            data["weighted_breakdown"] = rec.weighted_breakdown.to_dict()
+        if rec.insights is not None:
+            data["insights"] = rec.insights.to_dict()
+        return data
 
     def _notify_telegram(self, queued_count: int, errors: list) -> bool:
         try:

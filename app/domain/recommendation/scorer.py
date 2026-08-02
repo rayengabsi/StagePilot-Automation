@@ -1,13 +1,29 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 
 from rapidfuzz import fuzz
 
+from app.config.classification import get_classification_config
 from app.config.matching import MatchingConfig
 from app.db.models.jobs import Job
 from app.domain.master_profile.entities import MasterProfile
+from app.domain.master_profile.enums import RemotePreference
 from app.domain.recommendation.entities import MatchedDetail, ScoreBreakdown
+
+_REMOTE_KEYWORDS = ("remote", "teletravail", "télétravail", "work from home", "wfh", "distantiel")
+_ONSITE_KEYWORDS = ("on-site", "onsite", "presentiel", "présentiel", "in office", "sur site")
+
+_SENIORITY_YEARS: dict[str, tuple[float, float]] = {
+    "intern": (0.0, 1.0),
+    "junior": (0.0, 2.0),
+    "mid": (2.0, 6.0),
+    "senior": (5.0, 15.0),
+    "lead": (6.0, 15.0),
+    "manager": (6.0, 20.0),
+    "director": (8.0, 30.0),
+}
 
 
 class SimilarityScorer:
@@ -38,6 +54,11 @@ class SimilarityScorer:
             projects=proj_score,
             location=loc_score,
             preferences=pref_score,
+            classification=self._score_classification(profile, job),
+            remote=self._score_remote(profile, job),
+            seniority=self._score_seniority(profile, job),
+            hard_filters=100.0,
+            ai=0.0,
         )
 
     def match_detail(self, profile: MasterProfile, job: Job) -> MatchedDetail:
@@ -55,6 +76,96 @@ class SimilarityScorer:
             matched_preferences=tuple(sorted(matched_prefs)),
             unmatched_preferences=tuple(sorted(unmatched_prefs)),
         )
+
+    def _score_classification(self, profile: MasterProfile, job: Job) -> float:
+        """Score alignment between the job specialization and the profile.
+
+        When the job carries a classified specialization, the profile's skills,
+        technologies, education field, and languages are checked against the
+        specialization's keyword dictionary from ``classification.toml``.
+        """
+        spec = job.classification_specialization
+        if not spec:
+            return 50.0
+        keywords = get_classification_config().specializations.get(spec, ())
+        if not keywords:
+            return 50.0
+        profile_text = self._profile_text(profile)
+        if any(keyword in profile_text for keyword in keywords):
+            return 100.0
+        return 40.0
+
+    def _score_remote(self, profile: MasterProfile, job: Job) -> float:
+        """Score remote-preference compatibility using classified work mode."""
+        pref = profile.preferences.remote_preference
+        if pref == RemotePreference.ANY:
+            return 100.0
+        mode = self._work_mode(job)
+        if mode == "remote":
+            if pref == RemotePreference.REMOTE:
+                return 100.0
+            if pref == RemotePreference.HYBRID:
+                return 70.0
+            return 0.0
+        if mode == "hybrid":
+            if pref in (RemotePreference.REMOTE, RemotePreference.HYBRID):
+                return 80.0
+            return 30.0
+        if mode == "onsite":
+            if pref == RemotePreference.ONSITE:
+                return 100.0
+            if pref == RemotePreference.HYBRID:
+                return 40.0
+            return 0.0
+        return 50.0
+
+    def _score_seniority(self, profile: MasterProfile, job: Job) -> float:
+        """Score seniority compatibility against the profile's experience."""
+        level = job.classification_seniority
+        if not level or level not in _SENIORITY_YEARS:
+            return 50.0
+        years = self._total_experience_years(profile)
+        lo, hi = _SENIORITY_YEARS[level]
+        if years < lo:
+            return 30.0
+        if years > hi:
+            return 40.0
+        return 100.0
+
+    def _work_mode(self, job: Job) -> str | None:
+        if job.classification_work_mode:
+            return job.classification_work_mode
+        job_text = self._job_text(job).lower()
+        if any(kw in job_text for kw in _REMOTE_KEYWORDS):
+            return "remote"
+        if any(kw in job_text for kw in _ONSITE_KEYWORDS):
+            return "onsite"
+        return None
+
+    @staticmethod
+    def _profile_text(profile: MasterProfile) -> str:
+        parts: list[str] = [skill.name for skill in profile.skills]
+        for exp in profile.experience:
+            parts.extend(exp.technologies)
+        for proj in profile.projects:
+            parts.extend(proj.technologies)
+        for edu in profile.education:
+            if edu.field_of_study:
+                parts.append(edu.field_of_study)
+        for lang in profile.languages:
+            parts.append(lang.name)
+        return " ".join(p.lower() for p in parts)
+
+    @staticmethod
+    def _total_experience_years(profile: MasterProfile) -> float:
+        today = date.today()
+        total_days = 0.0
+        for exp in profile.experience:
+            start = exp.start_date
+            end = exp.end_date if not exp.is_current else today
+            if start and end and end >= start:
+                total_days += (end - start).days
+        return total_days / 365.25
 
     def _job_text(self, job: Job) -> str:
         parts = [job.title or "", job.description or "", job.requirements or ""]

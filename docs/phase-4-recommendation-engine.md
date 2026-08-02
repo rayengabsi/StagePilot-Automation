@@ -127,8 +127,13 @@ All scoring weights are defined in `matching.toml` and loaded into the `Matching
 | `projects` | 5.0 | Project relevance |
 | `location` | 10.0 | Geographic proximity |
 | `preferences` | 5.0 | Preferred technologies and language |
+| `classification` | 15.0 | Job intelligence classification alignment (specialization) |
+| `remote` | 5.0 | Remote-preference compatibility derived from classified work mode |
+| `seniority` | 5.0 | Seniority level compatibility vs. profile experience |
+| `hard_filters` | 10.0 | Hard-rule gate outcome (100 on pass, 0 on fail) |
+| `ai` | 0.0 | Reserved AI augmentation slot (currently neutral) |
 
-The weights sum to 100.0 by default, but the `ScoreAggregator` normalizes by the actual sum of weights, so custom configurations that sum to any value work correctly.
+The weights sum to 135.0 by default, but the `ScoreAggregator` normalizes by the actual sum of weights, so custom configurations that sum to any value work correctly.
 
 ### Thresholds
 
@@ -157,6 +162,11 @@ languages = 5.0
 projects = 5.0
 location = 10.0
 preferences = 5.0
+classification = 15.0
+remote = 5.0
+seniority = 5.0
+hard_filters = 10.0
+ai = 0.0
 
 [thresholds]
 minimum_score = 0.0
@@ -312,7 +322,7 @@ These are stored as JSON arrays in the `recommendations` table for full auditabi
 
 ## Score Aggregation
 
-The `ScoreAggregator` combines the 8 per-category scores into a single `final_score` using the configurable weights from `matching.toml`:
+The `ScoreAggregator` combines the 13 per-category scores into a single `final_score` using the configurable weights from `matching.toml`:
 
 ```
 final_score = (
@@ -323,11 +333,69 @@ final_score = (
     languages_score    * languages_weight     +
     projects_score     * projects_weight      +
     location_score     * location_weight      +
-    preferences_score  * preferences_weight
+    preferences_score  * preferences_weight   +
+    classification_score * classification_weight +
+    remote_score       * remote_weight        +
+    seniority_score    * seniority_weight     +
+    hard_filters_score * hard_filters_weight  +
+    ai_score           * ai_weight
 ) / sum_of_all_weights
 ```
 
-The result is a float in the 0-100 range representing overall job fit.
+The result is a float in the 0-100 range representing overall job fit. `aggregate()` remains the single scalar entry point; `aggregate_weighted()` additionally produces the full `WeightedBreakdown` (per-category `WeightedComponent`s with `score`, `weight`, `weighted_score`, and `contribution`) used by the Recommendation Intelligence Layer.
+
+---
+
+## Recommendation Intelligence Layer
+
+Every recommendation now carries an explainable, weighted breakdown plus distribution-derived confidence and deterministic reasoning.
+
+### Weighted Breakdown
+
+The `WeightedBreakdown` (in `app/domain/recommendation/entities.py`) records `final_score`, `total_weight`, and one `WeightedComponent` per category:
+
+| Field | Meaning |
+|---|---|
+| `category` | Category key (`skills`, `technologies`, ..., `ai`) |
+| `score` | Raw category score (0-100) |
+| `weight` | Configured weight for the category |
+| `weighted_score` | `score * weight` |
+| `contribution` | Share of `final_score` attributable to this category |
+
+It is exposed in the domain `Recommendation` as `weighted_breakdown` and persisted as `weighted_breakdown_json`. Hard-rule-rejected recommendations also receive a breakdown (final score 0.0) so rejection is always explainable.
+
+### Confidence Levels
+
+Confidence (`app/domain/recommendation/confidence.py`) is derived from the score distribution of the run rather than fixed thresholds, so it stays meaningful across different job markets and configs:
+
+| Level | Assignment (per run) |
+|---|---|
+| `VERY_HIGH` | Top quartile of the observed score range |
+| `HIGH` | Second quartile |
+| `MEDIUM` | Third quartile |
+| `LOW` | Bottom quartile |
+
+When all scores are equal (or there is only one recommendation) the calculator falls back to magnitude: `>=80` → `VERY_HIGH`, `>=60` → `HIGH`, `>=40` → `MEDIUM`, else `LOW`.
+
+### Deterministic Reasoning
+
+`ReasoningBuilder` (`app/domain/recommendation/reasoning.py`) produces human-readable `reasons` and a one-line `summary` using only deterministic logic over the score breakdown and match detail. Examples:
+
+```
+Strong FastAPI and Python match
+Missing Docker experience
+Location mismatch
+Remote-friendly role
+Seniority aligned
+Education aligns
+```
+
+A dedicated `ai` score slot (default weight `0.0`) exists so an LLM contribution can be blended into the weighted breakdown later without schema or API changes.
+
+### CLI / Telegram
+
+- The `stagepilot recommend` table now includes a **Confidence** column and prints a **Why:** line (the reasoning summary) under each row.
+- Telegram application messages include `*Confidence:*` and `*Why:*` fields.
 
 ---
 
@@ -335,7 +403,7 @@ The result is a float in the 0-100 range representing overall job fit.
 
 The `Recommendation` domain entity and `RecommendationRecord` ORM model store the full output of the matching pipeline.
 
-### DB Columns (10 categories)
+### DB Columns (13 categories)
 
 | Column | Type | Source |
 |---|---|---|
@@ -351,7 +419,9 @@ The `Recommendation` domain entity and `RecommendationRecord` ORM model store th
 | `missing_technologies_json` | JSON | List of missing technologies |
 | `matched_preferences_json` | JSON | List of matched preferences |
 | `unmatched_preferences_json` | JSON | List of unmatched preferences |
-| `score_breakdown_json` | JSON | Dict of 8 category to score |
+| `score_breakdown_json` | JSON | Dict of 13 categories to score |
+| `weighted_breakdown_json` | JSON | Per-category `WeightedComponent` records (added in `20260802_p10`) |
+| `insights_json` | JSON | Confidence level, reasons, summary (added in `20260802_p10`) |
 | `hard_rule_passed` | BOOLEAN | Whether hard rules passed |
 | `hard_rule_reasons` | JSON | Array of failure reason strings |
 | `created_at` | DATETIME | Server-default `now()` |
@@ -369,7 +439,35 @@ The `score_breakdown_json` column stores a flat dictionary:
   "languages": 50.0,
   "projects": 0.0,
   "location": 100.0,
-  "preferences": 100.0
+  "preferences": 100.0,
+  "classification": 100.0,
+  "remote": 100.0,
+  "seniority": 100.0,
+  "hard_filters": 100.0,
+  "ai": 0.0
+}
+```
+
+The `weighted_breakdown_json` column stores the weighted variant:
+
+```json
+{
+  "final_score": 82.3,
+  "total_weight": 135.0,
+  "components": [
+    {"category": "skills", "score": 85.0, "weight": 35.0, "weighted_score": 2975.0, "contribution": 22.0},
+    {"category": "technologies", "score": 70.0, "weight": 20.0, "weighted_score": 1400.0, "contribution": 10.4}
+  ]
+}
+```
+
+The `insights_json` column stores confidence and reasoning:
+
+```json
+{
+  "confidence": "very_high",
+  "reasons": ["Strong FastAPI and Python match", "Location mismatch", "Remote-friendly role"],
+  "summary": "Strong FastAPI and Python match.Location mismatch.Remote-friendly role."
 }
 ```
 
@@ -448,13 +546,15 @@ uv run stagepilot recommend --list --top 10 --json
 **Table output format:**
 
 ```
-Rank   Score    Job ID   Status       Matched Skills
+Rank   Score    Confidence   Job ID   Status       Matched Skills
 ------------------------------------------------------------------------------
-1      82.3     45       active       Python, Docker, SQL, Git, AWS...
-2      65.7     32       active       Python, SQL, Flask...
-3      45.0     78       active       Java, Spring...
-4      28.5     12       rejected     ...
+1      82.3     very_high    45       active       Python, Docker, SQL, Git, AWS...
+2      65.7     high         32       active       Python, SQL, Flask...
+3      45.0     medium       78       active       Java, Spring...
+4      28.5     low          12       rejected     ...
 ```
+
+Each row is followed by a `Why:` line containing the reasoning summary, e.g. `Why: Strong FastAPI and Python match.Location mismatch.Remote-friendly role.`
 
 **JSON output format:**
 
@@ -482,7 +582,24 @@ Rank   Score    Job ID   Status       Matched Skills
       "languages": 50.0,
       "projects": 0.0,
       "location": 100.0,
-      "preferences": 100.0
+      "preferences": 100.0,
+      "classification": 100.0,
+      "remote": 100.0,
+      "seniority": 100.0,
+      "hard_filters": 100.0,
+      "ai": 0.0
+    },
+    "weighted_breakdown": {
+      "final_score": 82.3,
+      "total_weight": 135.0,
+      "components": [
+        {"category": "skills", "score": 85.0, "weight": 35.0, "weighted_score": 2975.0, "contribution": 22.0}
+      ]
+    },
+    "insights": {
+      "confidence": "very_high",
+      "reasons": ["Strong FastAPI and Python match", "Location mismatch", "Remote-friendly role"],
+      "summary": "Strong FastAPI and Python match.Location mismatch.Remote-friendly role."
     },
     "hard_rule_passed": true,
     "hard_rule_reasons": [],
@@ -534,6 +651,11 @@ languages = 5.0
 projects = 5.0
 location = 10.0
 preferences = 5.0
+classification = 15.0
+remote = 5.0
+seniority = 5.0
+hard_filters = 10.0
+ai = 0.0
 
 [thresholds]
 minimum_score = 0.0
@@ -582,7 +704,7 @@ To add a new configurable parameter:
 
 ## Future AI Integration Point
 
-The Recommendation Engine is explicitly designed to support future AI/LLM augmentation without requiring architectural changes.
+The Recommendation Engine is explicitly designed to support future AI/LLM augmentation without requiring architectural changes. A reserved `ai` weight slot (default `0.0`) and `ai` score component already exist in the weighted breakdown, so an LLM contribution can be blended in by configuration alone.
 
 ### Structured Explanations Enable NL Generation
 
@@ -592,14 +714,16 @@ Every recommendation contains structured data that can feed an AI prompt:
 Given this structured recommendation:
 - Final score: 82.3
 - Score breakdown: {skills: 85, technologies: 70, education: 60, ...}
+- Weighted breakdown: {skills: contribution 22.0, technologies: contribution 10.4, ...}
 - Matched skills: [Python, Docker, SQL, Git]
 - Missing skills: [Kubernetes, AWS]
 - Hard rules: passed
+- Deterministic reasons: [Strong FastAPI and Python match, Location mismatch]
 
 Generate a natural-language explanation of why this job is a good fit.
 ```
 
-The stored `score_breakdown_json` and matched/missing detail columns provide all the signals an LLM needs to produce human-readable reasoning without any additional computation.
+The stored `score_breakdown_json`, `weighted_breakdown_json`, `insights_json`, and matched/missing detail columns provide all the signals an LLM needs to produce human-readable reasoning without any additional computation. Deterministic reasoning (`ReasoningBuilder`) already produces readable `reasons` and `summary` offline; AI would enrich rather than replace it.
 
 ### Integration Points
 
@@ -644,6 +768,8 @@ CREATE TABLE recommendations (
     matched_preferences_json    JSON,
     unmatched_preferences_json  JSON,
     score_breakdown_json        JSON,
+    weighted_breakdown_json     JSON,
+    insights_json               JSON,
     hard_rule_passed            BOOLEAN NOT NULL,
     hard_rule_reasons           JSON,
     created_at                  DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -654,10 +780,12 @@ CREATE TABLE recommendations (
 );
 ```
 
-- 16 columns total
-- 6 JSON columns for structured scoring data
+- 18 columns total
+- 9 JSON columns for structured scoring data
 - Foreign keys to `profiles` and `jobs` tables
 - Indexed on both foreign keys
+
+The `weighted_breakdown_json` and `insights_json` columns were added by migration `20260802_add_recommendation_intelligence_columns.py` (`20260802_p10`).
 
 ### `recommendation_feedback`
 

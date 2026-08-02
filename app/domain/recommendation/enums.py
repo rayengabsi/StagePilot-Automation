@@ -10,6 +10,13 @@ class RecommendationStatus(StrEnum):
     ARCHIVED = "archived"
 
 
+class ConfidenceLevel(StrEnum):
+    VERY_HIGH = "very_high"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
 class FeedbackReason(StrEnum):
     WRONG_COUNTRY = "wrong_country"
     WRONG_FIELD = "wrong_field"
