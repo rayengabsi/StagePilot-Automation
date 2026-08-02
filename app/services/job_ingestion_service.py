@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models.jobs import Job, RawJob
+from app.domain.jobs.classification import JobClassification
 from app.domain.jobs.entities import DiscoveredJob, JobSourceConfig, NormalizedJob
 from app.shared.hashing import stable_sha256
 
@@ -33,8 +34,14 @@ class JobIngestionService:
         source: JobSourceConfig,
         discovered: DiscoveredJob,
         normalized: NormalizedJob,
+        classification: JobClassification | None = None,
     ) -> IngestionResult:
-        """Persist one discovered job if it has not already been ingested."""
+        """Persist one discovered job if it has not already been ingested.
+
+        *classification* is stored as normalized intelligence alongside the
+        original connector-extracted values; it never affects duplicate
+        detection because it is derived from the same normalized job.
+        """
         content_hash = self._content_hash(source, discovered)
         raw_duplicate = self._find_raw_duplicate(source.id, discovered.external_id, content_hash)
         if raw_duplicate is not None:
@@ -81,6 +88,15 @@ class JobIngestionService:
             department=normalized.department,
             employment_type=normalized.employment_type,
             remote_status=normalized.remote_status,
+            classification_specialization=(
+                classification.specialization if classification else None
+            ),
+            classification_seniority=classification.seniority if classification else None,
+            classification_employment_type=(
+                classification.employment_type if classification else None
+            ),
+            classification_work_mode=classification.work_mode if classification else None,
+            classification_urgency=classification.urgency if classification else None,
             normalized_hash=normalized_hash,
             posted_at=normalized.posted_at,
         )

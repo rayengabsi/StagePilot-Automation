@@ -1,0 +1,294 @@
+# Job Intelligence Layer — classification keyword dictionaries and scoring rules.
+#
+# Every dictionary maps a normalized classification value to the keywords that
+# signal it. Keyword matching is case-insensitive and word-boundary based.
+# Add new specializations / seniority levels / employment types / work modes by
+# extending the relevant table; the service needs no code changes.
+#
+# Scoring: each keyword hit in the title is worth `title_weight`, each hit in
+# the description/requirements is worth `body_weight`. The label with the
+# highest total score wins. When scores tie the label listed first wins.
+
+[scoring]
+title_weight = 3.0
+body_weight = 1.0
+# A label must exceed this score to be assigned (otherwise the field stays None).
+# Kept below `body_weight` so a single keyword hit in title or body is enough.
+min_score = 0.5
+
+[specializations]
+backend = [
+    "backend",
+    "back-end",
+    "back end",
+    "server-side",
+    "server side",
+    "api engineer",
+    "microservices",
+    "java",
+    "python",
+    "golang",
+    "node",
+    "spring boot",
+    "django",
+    "ruby",
+]
+frontend = [
+    "frontend",
+    "front-end",
+    "front end",
+    "client-side",
+    "client side",
+    "ui engineer",
+    "react",
+    "vue",
+    "angular",
+    "typescript",
+    "javascript",
+    "css",
+    "html",
+]
+full_stack = [
+    "full stack",
+    "full-stack",
+    "fullstack",
+    "full stack engineer",
+]
+mobile = [
+    "mobile",
+    "ios",
+    "android",
+    "react native",
+    "flutter",
+    "kotlin",
+    "swift",
+    "cross-platform",
+]
+devops = [
+    "devops",
+    "dev-ops",
+    "build engineer",
+    "release engineer",
+    "ci/cd",
+    "cicd",
+    "infrastructure automation",
+]
+cloud = [
+    "cloud",
+    "aws",
+    "azure",
+    "gcp",
+    "google cloud",
+    "kubernetes",
+    "solutions architect",
+    "cloud architect",
+]
+cybersecurity = [
+    "cybersecurity",
+    "cyber security",
+    "security engineer",
+    "pentest",
+    "penetration",
+    "infosec",
+    "soc analyst",
+    "application security",
+    "network security",
+]
+ai_ml = [
+    "machine learning",
+    "ml engineer",
+    "ai engineer",
+    "artificial intelligence",
+    "deep learning",
+    "data scientist",
+    "nlp",
+    "computer vision",
+    "llm",
+    "genai",
+    "gen ai",
+]
+data_engineering = [
+    "data engineer",
+    "data engineering",
+    "data pipeline",
+    "etl",
+    "data warehouse",
+    "data warehousing",
+    "spark",
+    "airflow",
+    "big data",
+]
+qa = [
+    "qa",
+    "quality assurance",
+    "test engineer",
+    "sdet",
+    "automation engineer",
+    "software tester",
+    "qa engineer",
+]
+sre = [
+    "sre",
+    "site reliability",
+    "reliability engineer",
+    "site reliability engineer",
+]
+platform = [
+    "platform engineer",
+    "platform engineering",
+    "developer experience",
+    "internal tools",
+    "devtools",
+    "infrastructure engineer",
+]
+embedded = [
+    "embedded",
+    "firmware",
+    "fpga",
+    "microcontroller",
+    "rtos",
+    "iot",
+    "driver development",
+    "bare metal",
+]
+product = [
+    "product manager",
+    "product owner",
+    "technical product",
+    "product engineer",
+    "growth engineer",
+]
+
+[seniority_levels]
+intern = [
+    "intern",
+    "internship",
+    "stage",
+    "stagiaire",
+    "pfe",
+    "projet de fin d'etudes",
+    "final year project",
+    "apprenticeship",
+    "alternance",
+    "graduate trainee",
+    "trainee",
+]
+junior = [
+    "junior",
+    "entry level",
+    "entry-level",
+    "new grad",
+    "new graduate",
+]
+mid = [
+    "mid-level",
+    "midlevel",
+    "mid level",
+    "intermediate",
+    "associate",
+]
+senior = [
+    "senior",
+    "sr.",
+    "sr ",
+    "staff",
+    "principal",
+    "expert",
+]
+lead = [
+    "lead",
+    "tech lead",
+    "team lead",
+    "engineering lead",
+    "head of",
+]
+manager = [
+    "manager",
+    "engineering manager",
+    "group manager",
+]
+director = [
+    "director",
+    "vp",
+    "vice president",
+    "chief",
+    "cto",
+]
+
+[employment_types]
+internship = [
+    "internship",
+    "intern",
+    "stage",
+    "stagiaire",
+    "pfe",
+    "projet de fin d'etudes",
+    "final year project",
+    "apprenticeship",
+    "alternance",
+    "graduate",
+]
+full_time = [
+    "full-time",
+    "full time",
+    "cdi",
+    "permanent",
+    "temps plein",
+    "temps complet",
+]
+part_time = [
+    "part-time",
+    "part time",
+    "temps partiel",
+    "mi-temps",
+]
+contract = [
+    "contract",
+    "contractor",
+    "freelance",
+    "cdd",
+    "mission",
+]
+
+[work_modes]
+remote = [
+    "remote",
+    "teletravail",
+    "télétravail",
+    "work from home",
+    "wfh",
+    "home office",
+    "distantiel",
+    "100% remote",
+    "fully remote",
+]
+hybrid = [
+    "hybrid",
+    "hybride",
+    "mixte",
+    "semi-presentiel",
+    "semi presencial",
+]
+onsite = [
+    "on-site",
+    "onsite",
+    "presentiel",
+    "présentiel",
+    "in office",
+    "in-office",
+    "on premises",
+    "on-premises",
+    "sur site",
+]
+
+[urgency]
+urgent = [
+    "urgent",
+    "immediately",
+    "immediate start",
+    "asap",
+    "hiring now",
+    "start tomorrow",
+    "short notice",
+    "quick start",
+]

@@ -58,6 +58,14 @@ class SimilarityScorer:
 
     def _job_text(self, job: Job) -> str:
         parts = [job.title or "", job.description or "", job.requirements or ""]
+        parts.extend(
+            [
+                job.classification_specialization or "",
+                job.classification_seniority or "",
+                job.classification_employment_type or "",
+                job.classification_work_mode or "",
+            ]
+        )
         return " ".join(parts)
 
     def _in_text(self, term: str, text: str) -> bool:

@@ -14,6 +14,7 @@ from app.db.models.matching import JobMatch
 from app.domain.jobs.entities import JobSourceConfig
 from app.domain.jobs.errors import DiscoveryError, JobNormalizationError
 from app.infrastructure.job_sources.registry import ConnectorRegistry
+from app.services.job_classification_service import JobClassificationService
 from app.services.job_ingestion_service import JobIngestionService
 from app.services.job_matching_service import JobMatchingService, MutableMatchCounters
 from app.services.job_normalization_service import JobNormalizationService
@@ -50,14 +51,22 @@ class DiscoveryService:
         connector_registry: ConnectorRegistry,
         normalizer: JobNormalizationService,
         matching_service: JobMatchingService,
+        classifier: JobClassificationService | None = None,
     ) -> None:
-        """Initialize the discovery service dependencies."""
+        """Initialize the discovery service dependencies.
+
+        *classifier* enriches every normalized job with structured
+        intelligence (specialization, seniority, employment type, work mode,
+        urgency) immediately after normalization and before ingestion. When
+        omitted the default JobClassificationService is used.
+        """
         self._session = session
         self._sources = JobSourceRepository(session)
         self._ingestion = JobIngestionService(session)
         self._registry = connector_registry
         self._normalizer = normalizer
         self._matching = matching_service
+        self._classifier = classifier or JobClassificationService()
 
     def run_once(self, backfill_existing: bool = False) -> DiscoverySummary:
         """Run discovery once across all active configured sources.
@@ -133,7 +142,8 @@ class DiscoveryService:
             for discovered in discovered_jobs:
                 try:
                     normalized = self._normalizer.normalize(discovered)
-                    result = self._ingestion.ingest(source, discovered, normalized)
+                    classification = self._classifier.classify(normalized)
+                    result = self._ingestion.ingest(source, discovered, normalized, classification)
                 except JobNormalizationError as exc:
                     summary.invalid_count += 1
                     source_stats.invalid += 1

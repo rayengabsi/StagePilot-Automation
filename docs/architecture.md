@@ -568,6 +568,22 @@ interrupts discovery for other sources.
 - `discovery_metrics` records per-source metrics for every discovery run.
 - Cross-provider duplicate merging by canonical URL keeps one canonical `jobs` row.
 
+## Phase 9 — Job Intelligence Layer
+
+Every normalized job is enriched with structured intelligence before recommendation
+scoring: engineering specialization, seniority, employment type, work mode, and hiring
+urgency. `JobClassificationService` derives these from configurable keyword
+dictionaries in `app/config/classification.toml` (English + French variants) and
+persists them in five nullable `classification_*` columns on `jobs` (migration
+`20260802_p9`). Original extracted metadata is preserved unchanged.
+
+The enrichment runs inside `DiscoveryService` immediately after normalization and is
+provider-agnostic — new labels require only TOML changes. The classification fields
+feed into `SimilarityScorer` and `HardRuleMatcher` so enriched labels improve
+recommendation quality. See
+[`docs/phase-8-provider-discovery.md`](docs/phase-8-provider-discovery.md) for the
+full design.
+
 ### Commands
 
 ```text

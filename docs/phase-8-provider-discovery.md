@@ -120,6 +120,47 @@ These flow from each connector's `normalize()` through `JobNormalizationService`
 the `jobs` table columns `department`, `employment_type`, and `remote_status`
 (migration `20260802_p8`).
 
+## Job Intelligence Layer
+
+Every normalized job is enriched with structured intelligence immediately after
+normalization and before recommendation scoring (migration `20260802_p9` adds five
+nullable `classification_*` columns to `jobs`):
+
+| Column | Example values |
+| --- | --- |
+| `classification_specialization` | `backend`, `frontend`, `full_stack`, `mobile`, `devops`, `cloud`, `cybersecurity`, `ai_ml`, `data_engineering`, `qa`, `sre`, `platform`, `embedded`, `product` |
+| `classification_seniority` | `intern`, `junior`, `mid`, `senior`, `lead`, `manager`, `director` |
+| `classification_employment_type` | `internship`, `full_time`, `part_time`, `contract` |
+| `classification_work_mode` | `remote`, `hybrid`, `onsite` |
+| `classification_urgency` | `urgent` |
+
+`JobClassificationService.classify(normalized_job)` derives these from configurable
+keyword dictionaries in `app/config/classification.toml`:
+
+- Keyword matching is case-insensitive and word-boundary based.
+- Each keyword hit in the title is worth `title_weight` (3.0); each hit in the
+  description/requirements is worth `body_weight` (1.0). The label with the highest
+  weighted score wins, with ties resolved by dictionary order, and a label is only
+  assigned when its score exceeds `min_score` (0.5).
+- Seniority prefers the most senior matching level (e.g. "Senior Manager" is
+  classified as `manager`, not `senior`).
+- Work mode and urgency use direct keyword matches over the title, description,
+  requirements, department, `employment_type`, `remote_status`, and location.
+- English and French keyword variants are supported (e.g. `teletravail`/`télétravail`,
+  `cdi`, `temps plein`, `stage`, `stagiaire`, `pfe`, `alternance`, `présentiel`,
+  `sur site`, `hybride`).
+
+The enrichment is provider-agnostic: new labels are added by editing the TOML with no
+code changes. Original extracted values (`department`, `employment_type`,
+`remote_status`) are preserved unchanged alongside the normalized classification.
+
+`DiscoveryService` runs classification by default (constructor accepts an optional
+`classifier`); `JobIngestionService.ingest()` persists the classification fields.
+`SimilarityScorer` and `HardRuleMatcher` include the classification fields in the job
+text used for matching, so enriched labels improve recommendation quality (e.g. a
+`backend` specialization contributes to backend-skills matching even when the posting
+wording is generic).
+
 ## Cross-Provider Duplicate Merging
 
 `JobIngestionService` now detects duplicates by canonical URL across all sources, not

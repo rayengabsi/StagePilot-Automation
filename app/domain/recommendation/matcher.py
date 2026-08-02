@@ -19,6 +19,8 @@ class HardRuleMatcher:
     @staticmethod
     def _job_text(job: Job) -> str:
         parts = [job.title or "", job.description or "", job.requirements or ""]
+        if job.classification_work_mode:
+            parts.append(job.classification_work_mode)
         return " ".join(parts).lower()
 
     def evaluate(self, profile: MasterProfile, job: Job) -> HardRuleResult:
