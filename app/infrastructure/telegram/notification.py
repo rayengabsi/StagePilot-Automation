@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.config.settings import get_settings
 from app.config.telegram_config import get_telegram_config
 from app.domain.approval.errors import TelegramError
+from app.infrastructure.telegram.messages import format_daily_summary_message
 
 
 class TelegramNotificationService:
@@ -25,24 +26,7 @@ class TelegramNotificationService:
         self._broadcast(text)
 
     def _build_summary_text(self, packages_queued: int, failed_count: int) -> str:
-        lines: list[str] = []
-        lines.append("StagePilot Pipeline Complete")
-        lines.append("")
-
-        if packages_queued > 0:
-            lines.append(
-                f"{packages_queued} new internship opportunities found and queued for review."
-            )
-            lines.append("")
-            lines.append("Use /queue to review them.")
-        else:
-            lines.append("No new opportunities found this run.")
-
-        if failed_count > 0:
-            lines.append("")
-            lines.append(f"Warning: {failed_count} job(s) encountered errors.")
-
-        return "\n".join(lines)
+        return format_daily_summary_message(queued=packages_queued, failed=failed_count)
 
     def send_queue_notification(self, queue_count: int) -> None:
         """Send a queue summary notification."""
@@ -50,11 +34,7 @@ class TelegramNotificationService:
             msg = "Telegram bot token not configured"
             raise TelegramError(msg)
 
-        text = (
-            f"Approval Queue Status\n"
-            f"Current queue size: {queue_count}\n"
-            f"Use /queue to review pending applications."
-        )
+        text = format_daily_summary_message(queued=queue_count)
         self._broadcast(text)
 
     def _broadcast(self, text: str) -> None:
@@ -71,7 +51,7 @@ class TelegramNotificationService:
             bot = Bot(token=self._config.bot_token)
             for chat_id in self._config.allowed_chat_ids:
                 with suppress(Exception):
-                    await bot.send_message(chat_id=chat_id, text=text)
+                    await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
 
         try:
             asyncio.run(_send())

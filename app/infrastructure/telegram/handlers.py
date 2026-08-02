@@ -7,9 +7,18 @@ from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler
 
 from app.config.telegram_config import TelegramConfig, get_telegram_config
 from app.db.session import create_database_engine, create_session_factory
+from app.domain.approval.entities import ApplicationPackage
 from app.domain.approval.errors import ApprovalError, UnauthorizedError
 from app.infrastructure.telegram.auth import TelegramAuth
-from app.infrastructure.telegram.messages import format_application_message
+from app.infrastructure.telegram.messages import (
+    format_application_message,
+    format_application_update_message,
+    format_document_info_message,
+    format_history_message,
+    format_queue_message,
+    format_snapshot_preview,
+    format_status_message,
+)
 from app.services.approval_service import ApprovalService
 
 
@@ -53,27 +62,38 @@ def _authorize(update: Update) -> int:
     return user_id
 
 
-def _build_application_keyboard(package_id: int) -> InlineKeyboardMarkup:
+def _build_application_keyboard(package: ApplicationPackage) -> InlineKeyboardMarkup:
+    package_id = package.id
+    snapshot = _try_parse_json(package.snapshot_json) or {}
+    rec = snapshot.get("recommendation", {})
+    job = rec.get("job", {}) if isinstance(rec, dict) else {}
+    job_url = job.get("url") if isinstance(job, dict) else None
+
     keyboard = [
         [
-            InlineKeyboardButton("Approve", callback_data=f"approve:{package_id}"),
-            InlineKeyboardButton("Reject", callback_data=f"reject:{package_id}"),
+            InlineKeyboardButton("✅ Approve", callback_data=f"approve:{package_id}"),
+            InlineKeyboardButton("📄 Preview Resume", callback_data=f"resume:{package_id}"),
         ],
         [
-            InlineKeyboardButton("Request Revision", callback_data=f"revise:{package_id}"),
-            InlineKeyboardButton("Skip", callback_data=f"skip:{package_id}"),
+            InlineKeyboardButton("✉️ Preview Cover Letter", callback_data=f"cover:{package_id}"),
+            InlineKeyboardButton(
+                "🔗 Open Job",
+                url=str(job_url),
+            )
+            if job_url
+            else InlineKeyboardButton("📋 Package Details", callback_data=f"details:{package_id}"),
         ],
         [
-            InlineKeyboardButton("Resume", callback_data=f"resume:{package_id}"),
-            InlineKeyboardButton("Cover Letter", callback_data=f"cover:{package_id}"),
+            InlineKeyboardButton("🕘 Application History", callback_data=f"history:{package_id}"),
+            InlineKeyboardButton("🧾 Email Draft", callback_data=f"email:{package_id}"),
         ],
         [
-            InlineKeyboardButton("Email", callback_data=f"email:{package_id}"),
-            InlineKeyboardButton("Details", callback_data=f"details:{package_id}"),
+            InlineKeyboardButton("🔁 Request Revision", callback_data=f"revise:{package_id}"),
+            InlineKeyboardButton("⏭️ Skip", callback_data=f"skip:{package_id}"),
+            InlineKeyboardButton("❌ Reject", callback_data=f"reject:{package_id}"),
         ],
         [
-            InlineKeyboardButton("History", callback_data=f"history:{package_id}"),
-            InlineKeyboardButton("Archive", callback_data=f"archive:{package_id}"),
+            InlineKeyboardButton("🗄️ Archive", callback_data=f"archive:{package_id}"),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -88,9 +108,12 @@ async def _cmd_start(update: Update, _context: CallbackContext) -> None:
         await update.effective_message.reply_text("Unauthorized. Please contact an admin.")
         return
     await update.effective_message.reply_text(
-        "Welcome to StagePilot Approval Bot!\n\n"
-        "Use /queue to see the approval queue.\n"
-        "Use /help to see all commands."
+        "🚀 *Welcome to StagePilot*\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Your approval workspace is ready.\n\n"
+        "Use /queue to review recommendations.\n"
+        "Use /help for commands.",
+        parse_mode="Markdown",
     )
 
 
@@ -103,18 +126,19 @@ async def _cmd_help(update: Update, _context: CallbackContext) -> None:
         await update.effective_message.reply_text("Unauthorized.")
         return
     await update.effective_message.reply_text(
-        "/start - Welcome\n"
-        "/help - This help\n"
-        "/queue - Show approval queue\n"
-        "/view <id> - View application details\n"
-        "/open <id> - Start review\n"
-        "/approve <id> [reason] - Approve\n"
-        "/reject <id> [reason] - Reject\n"
-        "/revise <id> [reason] - Request revision\n"
-        "/skip <id> [reason] - Skip\n"
-        "/archive <id> [reason] - Archive\n"
-        "/history <id> - Show history\n"
-        "/status <id> - Show package status"
+        "🧭 *StagePilot Commands*\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "• /queue - Review approval queue\n"
+        "• /view <id> - Open recommendation card\n"
+        "• /open <id> - Start review\n"
+        "• /approve <id> [reason] - Approve\n"
+        "• /reject <id> [reason] - Reject\n"
+        "• /revise <id> [reason] - Request revision\n"
+        "• /skip <id> [reason] - Skip\n"
+        "• /archive <id> [reason] - Archive\n"
+        "• /history <id> - Application history\n"
+        "• /status <id> - Package status",
+        parse_mode="Markdown",
     )
 
 
@@ -131,26 +155,9 @@ async def _cmd_queue(update: Update, _context: CallbackContext) -> None:
     packages = svc.peek_queue(limit=10)
     count = svc.queue_count()
 
-    if not packages:
-        await update.effective_message.reply_text("Queue is empty.")
-        return
-
-    lines = [f"Queue size: {count}", ""]
-    for i, p in enumerate(packages):
-        snapshot = _try_parse_json(p.snapshot_json)
-        if snapshot and "recommendation" in snapshot:
-            rec = snapshot["recommendation"]
-            job = rec.get("job", {})
-            company = job.get("company_name", "Unknown")
-            title = job.get("title", "Unknown")
-        else:
-            company = f"Package #{p.id}"
-            title = ""
-        lines.append(
-            f"{i + 1}. {company} - {title} (Score: {p.final_score:.1f}) [{p.status.value}]"
-        )
-
-    await update.effective_message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.effective_message.reply_text(
+        format_queue_message(packages, count), parse_mode="Markdown"
+    )
 
 
 async def _cmd_view(update: Update, context: CallbackContext) -> None:
@@ -180,7 +187,7 @@ async def _cmd_view(update: Update, context: CallbackContext) -> None:
         return
 
     text = format_application_message(package)
-    keyboard = _build_application_keyboard(package_id)
+    keyboard = _build_application_keyboard(package)
     await update.effective_message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
@@ -211,7 +218,8 @@ async def _cmd_open(update: Update, context: CallbackContext) -> None:
         return
 
     await update.effective_message.reply_text(
-        f"Review started for package #{package.id} (status: {package.status.value})"
+        format_status_message(package),
+        parse_mode="Markdown",
     )
 
 
@@ -276,7 +284,12 @@ async def _perform_action(update: Update, context: CallbackContext, action: str)
         return
 
     await update.effective_message.reply_text(
-        f"Package #{package_id} {action}d. New status: {updated.status.value}"
+        format_application_update_message(
+            title=f"Package #{package_id}",
+            status=updated.status.value,
+            comment=f"Action completed: {action}",
+        ),
+        parse_mode="Markdown",
     )
 
 
@@ -306,16 +319,9 @@ async def _cmd_history(update: Update, context: CallbackContext) -> None:
         await update.effective_message.reply_text(str(exc))
         return
 
-    if not events:
-        await update.effective_message.reply_text("No events recorded.")
-        return
-
-    lines = [f"History for package #{package_id}:"]
-    for e in events:
-        lines.append(
-            f"  [{e.created_at}] {e.action} by {e.actor}" + (f" - {e.comment}" if e.comment else "")
-        )
-    await update.effective_message.reply_text("\n".join(lines))
+    await update.effective_message.reply_text(
+        format_history_message(package_id, events), parse_mode="Markdown"
+    )
 
 
 async def _cmd_status(update: Update, context: CallbackContext) -> None:
@@ -344,11 +350,7 @@ async def _cmd_status(update: Update, context: CallbackContext) -> None:
         await update.effective_message.reply_text(str(exc))
         return
 
-    await update.effective_message.reply_text(
-        f"Package #{package.id} status: {package.status.value}\n"
-        f"Score: {package.final_score:.1f}\n"
-        f"Revision: {package.revision_number}"
-    )
+    await update.effective_message.reply_text(format_status_message(package), parse_mode="Markdown")
 
 
 async def _callback_handler(update: Update, _context: CallbackContext) -> None:
@@ -379,32 +381,28 @@ async def _callback_handler(update: Update, _context: CallbackContext) -> None:
 
     try:
         if action == "approve":
-            svc.approve(package_id, actor=str(user_id))
-            await query.edit_message_text(f"Package #{package_id} approved.")
+            updated = svc.approve(package_id, actor=str(user_id))
+            await query.edit_message_text(format_status_message(updated), parse_mode="Markdown")
         elif action == "reject":
-            svc.reject(package_id, actor=str(user_id))
-            await query.edit_message_text(f"Package #{package_id} rejected.")
+            updated = svc.reject(package_id, actor=str(user_id))
+            await query.edit_message_text(format_status_message(updated), parse_mode="Markdown")
         elif action == "revise":
-            svc.request_revision(package_id, actor=str(user_id))
-            await query.edit_message_text(f"Revision requested for #{package_id}.")
+            updated = svc.request_revision(package_id, actor=str(user_id))
+            await query.edit_message_text(format_status_message(updated), parse_mode="Markdown")
         elif action == "skip":
-            svc.skip(package_id, actor=str(user_id))
-            await query.edit_message_text(f"Package #{package_id} skipped.")
+            updated = svc.skip(package_id, actor=str(user_id))
+            await query.edit_message_text(format_status_message(updated), parse_mode="Markdown")
         elif action == "archive":
-            svc.archive(package_id, actor=str(user_id))
-            await query.edit_message_text(f"Package #{package_id} archived.")
+            updated = svc.archive(package_id, actor=str(user_id))
+            await query.edit_message_text(format_status_message(updated), parse_mode="Markdown")
         elif action in ("resume", "cover", "email", "details"):
             info = await _get_document_info(svc, package_id, action)
-            await query.edit_message_text(info)
+            await query.edit_message_text(info, parse_mode="Markdown")
         elif action == "history":
             events = svc.get_history(package_id)
-            lines = [f"History for #{package_id}:"]
-            for e in events:
-                lines.append(
-                    f"  [{e.created_at}] {e.action} by {e.actor}"
-                    + (f" - {e.comment}" if e.comment else "")
-                )
-            await query.edit_message_text("\n".join(lines) or "No history.")
+            await query.edit_message_text(
+                format_history_message(package_id, events), parse_mode="Markdown"
+            )
         else:
             await query.edit_message_text(f"Unknown action: {action}")
     except ApprovalError as exc:
@@ -414,25 +412,31 @@ async def _callback_handler(update: Update, _context: CallbackContext) -> None:
 async def _get_document_info(svc: ApprovalService, package_id: int, doc_type: str) -> str:
     if doc_type == "details":
         snapshot = svc.get_snapshot(package_id)
-        import json
-
-        preview_keys = {k: v for k, v in snapshot.items() if k != "profile"}
-        return f"Snapshot preview:\n{json.dumps(preview_keys, indent=2, default=str)[:3000]}"
+        return format_snapshot_preview(snapshot)
     docs = svc.get_documents(package_id)
     if doc_type == "resume":
-        return (
-            f"Resume PDF: {docs.get('resume_pdf', 'N/A')}\n"
-            f"Resume DOCX: {docs.get('resume_docx', 'N/A')}"
+        return format_document_info_message(
+            title="Resume Preview",
+            fields={
+                "PDF": docs.get("resume_pdf", ""),
+                "DOCX": docs.get("resume_docx", ""),
+            },
         )
     if doc_type == "cover":
-        return (
-            f"Cover Letter PDF: {docs.get('cover_letter_pdf', 'N/A')}\n"
-            f"Cover Letter DOCX: {docs.get('cover_letter_docx', 'N/A')}"
+        return format_document_info_message(
+            title="Cover Letter Preview",
+            fields={
+                "PDF": docs.get("cover_letter_pdf", ""),
+                "DOCX": docs.get("cover_letter_docx", ""),
+            },
         )
     if doc_type == "email":
-        return (
-            f"Subject: {docs.get('email_subject', 'N/A')}\n"
-            f"Body preview: {docs.get('email_body', '')[:500]}"
+        return format_document_info_message(
+            title="Email Draft",
+            fields={
+                "Subject": docs.get("email_subject", ""),
+                "Body Preview": docs.get("email_body", "")[:500],
+            },
         )
     return "No information available."
 

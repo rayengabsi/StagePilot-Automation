@@ -156,17 +156,72 @@ Timestamped comments from reviewers.
 |-----------|------|----------------|
 | `bot.py` | `run_telegram_bot()` | Polling loop, register handlers |
 | `handlers.py` | `build_handlers()` | Command + callback handlers |
-| `messages.py` | `format_application_message()` | Telegram message formatting |
+| `messages.py` | Message template functions | Telegram Markdown presentation only |
 | `auth.py` | `TelegramAuth` | User authorization |
 
 ### Commands
 `/start`, `/help`, `/queue`, `/view`, `/open`, `/approve`, `/reject`, `/revise`, `/skip`, `/archive`, `/history`, `/status`
 
 ### Inline Buttons
-Every application shows: Approve, Reject, Request Revision, Skip, Resume, Cover Letter, Email, Details, History, Archive
+
+Every application keeps the same approval actions, grouped into short action rows:
+
+```text
+✅ Approve        📄 Preview Resume
+✉️ Preview Cover Letter   🔗 Open Job
+🕘 Application History    🧾 Email Draft
+🔁 Request Revision       ⏭️ Skip       ❌ Reject
+🗄️ Archive
+```
+
+If the job URL is unavailable, `Open Job` gracefully becomes `Package Details`. The Telegram adapter still calls `ApprovalService`; no approval workflow logic lives in the bot.
 
 ### Message Format
-Shows: Company, Position, Location, Score, Matched Skills, Missing Skills, Explanation, Documents, Queue Position
+
+Telegram messages are formatted as compact Markdown cards, not raw JSON or CLI output. All templates live in `app/infrastructure/telegram/messages.py` and are presentation-only helpers.
+
+Main recommendation cards show:
+
+- Professional header: company, position, location, work mode
+- Prominent match score and confidence
+- Lifecycle progress: `Discovered → Recommended → Tailored → Approved → Applied`
+- Concise `Why This Matches You`
+- Compact `Missing Skills`
+- Job summary: employment type, seniority, posting date
+- AI tailoring quality and resume quality when present in the approval snapshot
+- Available document previews
+- Queue position, status, template, and revision metadata
+
+Example:
+
+```text
+🚀 *StagePilot Recommendation*
+━━━━━━━━━━━━━━━━━━━━
+🏢 *Acme Corp*
+💼 Backend Engineer
+📍 Paris  •  Remote
+
+🎯 *Match Score:* `92.5/100`
+🧭 *Confidence:* `Very High`
+📍 *Progress:* ● ● ● ○ ○  `Discovered → Recommended → Tailored → Approved → Applied`
+
+✨ *Why This Matches You*
+• Strong Python and SQL match for the role.
+
+🧩 *Missing Skills*
+• Go
+
+📋 *Job Summary*
+• Employment: Internship
+• Seniority: Junior
+• Posted: 2026-08-01
+
+🧪 *Tailoring Quality*
+• AI Tailoring: `84.5/100` Good
+• Resume Quality: `91.2/100` Excellent
+```
+
+Additional reusable templates cover application updates, follow-up reminders, interview invitations, offers, rejections, daily summaries, queue views, document previews, package details, package status, and application history. Each template degrades gracefully when optional information is missing by showing concise fallback text such as `Not specified`.
 
 ---
 

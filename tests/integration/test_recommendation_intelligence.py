@@ -279,7 +279,7 @@ def test_enriched_recommendation_flows_to_approval_telegram(db_session: Session)
     assert isinstance(package, ApplicationPackage)
 
     message = format_application_message(package)
-    assert "*Confidence:* very_high" in message
-    assert "*Why:*" in message
+    assert "🧭 *Confidence:* `Very High`" in message
+    assert "✨ *Why This Matches You*" in message
     assert top.insights.summary in message
     assert top.status in (RecommendationStatus.ACTIVE, RecommendationStatus.REJECTED)
