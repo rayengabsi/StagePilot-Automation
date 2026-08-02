@@ -18,6 +18,7 @@ from app.infrastructure.job_sources.registry import build_connector_registry
 from app.infrastructure.parsers.parser_factory import detect_parser
 from app.infrastructure.parsers.pdf_parser import PDFParser
 from app.services.ai_orchestrator import AIOrchestrator
+from app.services.application_service import ApplicationService
 from app.services.approval_service import ApprovalService
 from app.services.cover_letter_service import CoverLetterService
 from app.services.discovery_service import DiscoveryService
@@ -437,6 +438,118 @@ def _build_parser() -> argparse.ArgumentParser:
     a_history_parser.add_argument("package_id", type=int, help="Package ID.")
     a_history_parser.set_defaults(handler=_handle_approval_history)
 
+    application_parser = subparsers.add_parser(
+        "application", help="Manage tracked job applications."
+    )
+    application_subparsers = application_parser.add_subparsers(dest="application_command")
+
+    app_create_parser = application_subparsers.add_parser(
+        "create", help="Create an application from an approved package."
+    )
+    app_create_parser.add_argument(
+        "--package-id", type=int, required=True, help="Approved package ID."
+    )
+    app_create_parser.add_argument("--actor", type=str, default="cli", help="Actor name.")
+    app_create_parser.set_defaults(handler=_handle_application_create)
+
+    app_list_parser = application_subparsers.add_parser("list", help="List applications.")
+    app_list_parser.add_argument("--status", type=str, default=None, help="Filter by status.")
+    app_list_parser.add_argument("--company", type=str, default=None, help="Filter by company.")
+    app_list_parser.add_argument("--label", type=str, default=None, help="Filter by label.")
+    app_list_parser.add_argument(
+        "--date-from", type=str, default=None, help="Filter from date (YYYY-MM-DD)."
+    )
+    app_list_parser.add_argument(
+        "--date-to", type=str, default=None, help="Filter to date (YYYY-MM-DD)."
+    )
+    app_list_parser.add_argument("--limit", type=int, default=50, help="Limit (default: 50).")
+    app_list_parser.add_argument("--offset", type=int, default=0, help="Offset (default: 0).")
+    app_list_parser.set_defaults(handler=_handle_application_list)
+
+    app_show_parser = application_subparsers.add_parser("show", help="Show an application.")
+    app_show_parser.add_argument("application_id", type=int, help="Application ID.")
+    app_show_parser.set_defaults(handler=_handle_application_show)
+
+    app_update_parser = application_subparsers.add_parser("update", help="Update an application.")
+    app_update_parser.add_argument("application_id", type=int, help="Application ID.")
+    app_update_parser.add_argument("--status", type=str, default=None, help="New status.")
+    app_update_parser.add_argument("--company", type=str, default=None, help="Company name.")
+    app_update_parser.add_argument("--job-title", type=str, default=None, help="Job title.")
+    app_update_parser.add_argument("--resume-path", type=str, default=None, help="Resume path.")
+    app_update_parser.add_argument(
+        "--cover-letter-path", type=str, default=None, help="Cover letter path."
+    )
+    app_update_parser.add_argument(
+        "--labels", type=str, default=None, help="Replace labels (comma-separated)."
+    )
+    app_update_parser.add_argument("--add-label", type=str, default=None, help="Add a label.")
+    app_update_parser.add_argument("--remove-label", type=str, default=None, help="Remove a label.")
+    app_update_parser.add_argument("--note", type=str, default=None, help="Add a note.")
+    app_update_parser.add_argument("--actor", type=str, default="cli", help="Actor name.")
+    app_update_parser.add_argument("--comment", type=str, default="", help="Transition comment.")
+    app_update_parser.set_defaults(handler=_handle_application_update)
+
+    app_archive_parser = application_subparsers.add_parser(
+        "archive", help="Archive an application."
+    )
+    app_archive_parser.add_argument("application_id", type=int, help="Application ID.")
+    app_archive_parser.add_argument("--actor", type=str, default="cli", help="Actor name.")
+    app_archive_parser.add_argument("--comment", type=str, default="", help="Archive comment.")
+    app_archive_parser.set_defaults(handler=_handle_application_archive)
+
+    app_search_parser = application_subparsers.add_parser("search", help="Search applications.")
+    app_search_parser.add_argument("query", type=str, help="Search query (company, title, note).")
+    app_search_parser.add_argument("--limit", type=int, default=20, help="Limit (default: 20).")
+    app_search_parser.set_defaults(handler=_handle_application_search)
+
+    app_summarize_parser = application_subparsers.add_parser(
+        "summarize", help="Summarize applications."
+    )
+    app_summarize_parser.set_defaults(handler=_handle_application_summarize)
+
+    app_analytics_parser = application_subparsers.add_parser(
+        "analytics", help="Application analytics and pipeline conversion rates."
+    )
+    app_analytics_parser.set_defaults(handler=_handle_application_analytics)
+
+    app_reminder_parser = application_subparsers.add_parser(
+        "reminder", help="Manage follow-up reminders."
+    )
+    app_reminder_subparsers = app_reminder_parser.add_subparsers(
+        dest="application_reminder_command"
+    )
+
+    ar_add_parser = app_reminder_subparsers.add_parser("add", help="Schedule a follow-up reminder.")
+    ar_add_parser.add_argument("application_id", type=int, help="Application ID.")
+    ar_add_parser.add_argument("--due-days", type=int, default=None, help="Due in N days.")
+    ar_add_parser.add_argument("--due-at", type=str, default=None, help="Due date (ISO datetime).")
+    ar_add_parser.add_argument(
+        "--message", type=str, default="Follow up on application", help="Reminder message."
+    )
+    ar_add_parser.add_argument("--actor", type=str, default="cli", help="Actor name.")
+    ar_add_parser.set_defaults(handler=_handle_application_reminder_add)
+
+    ar_list_parser = app_reminder_subparsers.add_parser("list", help="List reminders.")
+    ar_list_parser.add_argument("--status", type=str, default=None, help="Filter by status.")
+    ar_list_parser.add_argument(
+        "--due-before", type=str, default=None, help="Only reminders due before (ISO datetime)."
+    )
+    ar_list_parser.add_argument("--limit", type=int, default=50, help="Limit (default: 50).")
+    ar_list_parser.set_defaults(handler=_handle_application_reminder_list)
+
+    ar_complete_parser = app_reminder_subparsers.add_parser("complete", help="Complete a reminder.")
+    ar_complete_parser.add_argument("reminder_id", type=int, help="Reminder ID.")
+    ar_complete_parser.add_argument("--actor", type=str, default="cli", help="Actor name.")
+    ar_complete_parser.set_defaults(handler=_handle_application_reminder_complete)
+
+    ar_snooze_parser = app_reminder_subparsers.add_parser("snooze", help="Snooze a reminder.")
+    ar_snooze_parser.add_argument("reminder_id", type=int, help="Reminder ID.")
+    ar_snooze_parser.add_argument(
+        "--due-at", type=str, required=True, help="New due date (ISO datetime)."
+    )
+    ar_snooze_parser.add_argument("--actor", type=str, default="cli", help="Actor name.")
+    ar_snooze_parser.set_defaults(handler=_handle_application_reminder_snooze)
+
     telegram_parser = subparsers.add_parser("telegram", help="Telegram integration.")
     telegram_subparsers = telegram_parser.add_subparsers(dest="telegram_command")
 
@@ -557,6 +670,178 @@ def _handle_approval_history(args: argparse.Namespace, settings: Settings) -> in
         events = svc.get_history(args.package_id)
         data = [e.to_dict() for e in events]
     print(json.dumps(data, indent=2, default=str))
+    return 0
+
+
+def _handle_application_create(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApplicationService(session=session)
+        application = svc.create_from_approved_package(package_id=args.package_id, actor=args.actor)
+    print(json.dumps(application.to_dict(), indent=2, default=str))
+    return 0
+
+
+def _handle_application_list(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApplicationService(session=session)
+        applications = svc.list_applications(
+            status=args.status,
+            company=args.company,
+            label=args.label,
+            date_from=args.date_from,
+            date_to=args.date_to,
+            limit=args.limit,
+            offset=args.offset,
+        )
+        data = [a.to_dict() for a in applications]
+    print(json.dumps(data, indent=2, default=str))
+    return 0
+
+
+def _handle_application_show(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApplicationService(session=session)
+        application = svc.get_application(args.application_id)
+        data = {
+            "application": application.to_dict(),
+            "timeline": [e.to_dict() for e in svc.get_timeline(args.application_id)],
+            "history": [e.to_dict() for e in svc.get_history(args.application_id)],
+            "notes": [n.to_dict() for n in svc.list_notes(args.application_id)],
+            "reminders": [r.to_dict() for r in svc.list_reminders(limit=100)],
+            "outcome": (
+                svc.get_outcome(args.application_id).to_dict()
+                if svc.get_outcome(args.application_id)
+                else None
+            ),
+        }
+    print(json.dumps(data, indent=2, default=str))
+    return 0
+
+
+def _handle_application_update(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApplicationService(session=session)
+        application = svc.update_application(
+            args.application_id,
+            args.actor,
+            company_name=args.company,
+            job_title=args.job_title,
+            resume_path=args.resume_path,
+            cover_letter_path=args.cover_letter_path,
+            comment=args.comment,
+        )
+        if args.labels is not None:
+            labels = tuple(x.strip() for x in args.labels.split(",") if x.strip())
+            application = svc.set_labels(args.application_id, labels, args.actor)
+        if args.add_label:
+            application = svc.add_label(args.application_id, args.add_label, args.actor)
+        if args.remove_label:
+            application = svc.remove_label(args.application_id, args.remove_label, args.actor)
+        if args.note:
+            svc.add_note(args.application_id, args.actor, args.note)
+        if args.status:
+            application = svc.change_status(
+                args.application_id, args.status, args.actor, comment=args.comment
+            )
+    print(json.dumps(application.to_dict(), indent=2, default=str))
+    return 0
+
+
+def _handle_application_archive(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApplicationService(session=session)
+        application = svc.archive(args.application_id, args.actor, comment=args.comment)
+    print(json.dumps(application.to_dict(), indent=2, default=str))
+    return 0
+
+
+def _handle_application_search(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApplicationService(session=session)
+        applications = svc.search_applications(args.query, limit=args.limit)
+        data = [a.to_dict() for a in applications]
+    print(json.dumps(data, indent=2, default=str))
+    return 0
+
+
+def _handle_application_summarize(_args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApplicationService(session=session)
+        data = svc.summarize()
+    print(json.dumps(data, indent=2, default=str))
+    return 0
+
+
+def _handle_application_analytics(_args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApplicationService(session=session)
+        data = svc.analytics()
+    print(json.dumps(data, indent=2, default=str))
+    return 0
+
+
+def _handle_application_reminder_add(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApplicationService(session=session)
+        reminder = svc.schedule_follow_up(
+            args.application_id,
+            args.actor,
+            due_at=args.due_at,
+            due_days=args.due_days,
+            message=args.message,
+        )
+    print(json.dumps(reminder.to_dict(), indent=2, default=str))
+    return 0
+
+
+def _handle_application_reminder_list(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApplicationService(session=session)
+        reminders = svc.list_reminders(
+            status=args.status, due_before=args.due_before, limit=args.limit
+        )
+        data = [r.to_dict() for r in reminders]
+    print(json.dumps(data, indent=2, default=str))
+    return 0
+
+
+def _handle_application_reminder_complete(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApplicationService(session=session)
+        reminder = svc.complete_reminder(args.reminder_id, args.actor)
+    print(json.dumps(reminder.to_dict(), indent=2, default=str))
+    return 0
+
+
+def _handle_application_reminder_snooze(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        svc = ApplicationService(session=session)
+        reminder = svc.snooze_reminder(args.reminder_id, args.due_at, args.actor)
+    print(json.dumps(reminder.to_dict(), indent=2, default=str))
     return 0
 
 

@@ -1,0 +1,6 @@
+[reminders]
+enabled = true
+default_days = 3
+
+[labels]
+default = []

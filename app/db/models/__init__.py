@@ -1,6 +1,14 @@
 """SQLAlchemy ORM model registry."""
 
 from app.db.models.ai_usage import TokenUsageRecord
+from app.db.models.applications import (
+    ApplicationEventRecord,
+    ApplicationNoteRecord,
+    ApplicationOutcomeRecord,
+    ApplicationRecord,
+    ApplicationTimelineEventRecord,
+    FollowUpReminderRecord,
+)
 from app.db.models.approval import (
     ApplicationPackageRecord,
     ApprovalCommentRecord,
@@ -27,7 +35,12 @@ from app.db.models.profile import (
 from app.db.models.recommendation import RecommendationFeedbackRecord, RecommendationRecord
 
 __all__ = [
+    "ApplicationEventRecord",
+    "ApplicationNoteRecord",
+    "ApplicationOutcomeRecord",
     "ApplicationPackageRecord",
+    "ApplicationRecord",
+    "ApplicationTimelineEventRecord",
     "ApprovalCommentRecord",
     "ApprovalEventRecord",
     "ApprovalQueueRecord",
@@ -36,6 +49,7 @@ __all__ = [
     "DiscoveryMetricRecord",
     "EducationRecord",
     "ExperienceRecord",
+    "FollowUpReminderRecord",
     "Job",
     "JobMatch",
     "JobSource",

@@ -652,3 +652,44 @@ interface, orchestrator, and prompt files are untouched — all checks are rule-
 - **Tests** — 32 new tests (23 evaluator, 4 quality entities, 2 service quality attachment,
   3 pipeline integration) bring the suite to 620 passing with ruff clean. See
   [`docs/phase-5-ai-intelligence-layer.md`](docs/phase-5-ai-intelligence-layer.md).
+
+## Phase 12 — Application Execution Engine
+
+The Application Execution Engine starts after approval and tracks real job applications
+independently from discovery, recommendation, tailoring, and approval. An approved
+`ApplicationPackage` can be converted into a `JobApplication` while preserving traceability
+to the recommendation, job, profile, profile version, rendered resume, cover letter, and
+approval package.
+
+```text
+Recommendation -> AI Tailoring -> Rendering -> Approval Package -> Human Approval
+                                                                       |
+                                                                       v
+                                                              ApplicationService
+                                                                       |
+                     +--------------------+----------------------------+----------------+
+                     |                    |                                             |
+              applications        application_events                         reminders/notes
+                     |                    |                                             |
+                     +-------------- timeline/outcomes/analytics -----------------------+
+```
+
+- **Lifecycle** — `ApplicationState` covers `draft`, `ready`, `submitted`, `viewed`,
+  `interview`, `assessment`, `offer`, `rejected`, `withdrawn`, and `archived`. All
+  transitions are explicit in `VALID_TRANSITIONS`; `archived` is terminal and reachable
+  from active states for stale-record cleanup.
+- **Auditability** — `application_events` stores lifecycle and metadata actions, while
+  `application_timeline_events` provides a human-readable timeline.
+- **Follow-ups** — `application_reminders` stores configurable reminders only; no external
+  notification integration is introduced.
+- **Outcomes and analytics** — `application_outcomes` records final outcomes. Analytics
+  report submission counts, interview/offer/rejection rates, average response time, and
+  pipeline conversion percentages.
+- **CLI** — `stagepilot application` supports create/list/show/update/archive/search/
+  summarize/analytics plus `application reminder` add/list/complete/snooze commands.
+- **Persistence** — migration `20260802_p11` creates `applications`, `application_events`,
+  `application_notes`, `application_timeline_events`, `application_reminders`, and
+  `application_outcomes`.
+- **Tests** — application domain, service, CLI, and integration coverage brings the suite
+  to 696 passing with ruff clean. See
+  [`docs/phase-12-application-execution-engine.md`](docs/phase-12-application-execution-engine.md).
