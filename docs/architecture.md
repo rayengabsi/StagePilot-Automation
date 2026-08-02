@@ -493,3 +493,45 @@ stagepilot approval archive <id>
 stagepilot approval history <id>
 stagepilot telegram run
 ```
+
+## Phase 8 — Multi-Provider Job Discovery Platform
+
+Phase 8 extends discovery from a single RSS reader into a multi-provider platform.
+See [`docs/phase-8-provider-discovery.md`](docs/phase-8-provider-discovery.md) for
+detailed documentation.
+
+### Providers
+
+Nine connector families join RSS/Atom, all extending the shared
+`BaseJobSourceConnector`: Greenhouse, Lever, Ashby, SmartRecruiters, Teamtailor,
+Welcome to the Jungle (WelcomeKit), RemoteOK, Wellfound, and configurable Company
+Career Pages (CSS-selector based scraping with JSON-LD fallback).
+
+### Shared Infrastructure
+
+- `HttpClient` — pooled sessions, tenacity retries (429/5xx + transient errors),
+  per-provider timeout/headers, `User-Agent` injection.
+- `RateLimiter` — per-provider minimum interval between paginated requests.
+- `app/infrastructure/html/parsing.py` — lxml/BeautifulSoup helpers for scraping.
+- `app/config/providers.toml` + `ProvidersConfig` — per-provider HTTP/rate config.
+
+### Registry
+
+`build_connector_registry(settings)` auto-registers every enabled provider. The CLI
+(`discover`) and `PipelineOrchestrator._run_discovery()` both use it, so new providers
+are picked up automatically.
+
+### Persistence
+
+- `jobs` gains `department`, `employment_type`, `remote_status` columns.
+- `discovery_metrics` records per-source metrics for every discovery run.
+- Cross-provider duplicate merging by canonical URL keeps one canonical `jobs` row.
+
+### Commands
+
+```text
+stagepilot sources add-rss | add-greenhouse | add-lever | add-ashby |
+           add-smartrecruiters | add-teamtailor | add-wttj | add-remoteok |
+           add-wellfound | add-company
+stagepilot sources list | remove | enable | disable | refresh | health | test
+```

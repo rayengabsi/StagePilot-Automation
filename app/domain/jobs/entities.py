@@ -31,6 +31,10 @@ class DiscoveredJob:
     raw_payload: dict[str, Any]
     discovered_at: datetime
     posted_at: datetime | None = None
+    department: str | None = None
+    employment_type: str | None = None
+    remote_status: str | None = None
+    requirements: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,3 +49,17 @@ class NormalizedJob:
     description: str | None
     requirements: str | None
     posted_at: datetime | None
+    department: str | None = None
+    employment_type: str | None = None
+    remote_status: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderHealth:
+    """Result of a provider connectivity health check."""
+
+    provider: str
+    status: str
+    latency_ms: float
+    message: str
+    checked_at: datetime

@@ -28,8 +28,11 @@ class JobNormalizationService:
             company=self._clean_optional_text(job.company),
             location=self._clean_optional_text(job.location),
             description=self._clean_optional_html(job.description),
-            requirements=None,
+            requirements=self._clean_optional_text(job.requirements),
             posted_at=job.posted_at,
+            department=self._clean_optional_text(job.department),
+            employment_type=self._clean_optional_text(job.employment_type),
+            remote_status=self._clean_optional_text(job.remote_status),
         )
 
     def _clean_optional_html(self, value: str | None) -> str | None:

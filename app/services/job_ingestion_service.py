@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models.jobs import Job, RawJob
@@ -47,6 +47,8 @@ class JobIngestionService:
 
         normalized_hash = self._normalized_hash(normalized)
         job_duplicate = self._find_job_duplicate(source.id, normalized_hash)
+        if job_duplicate is None:
+            job_duplicate = self._find_cross_source_duplicate(normalized)
         if job_duplicate is not None:
             return IngestionResult(
                 inserted=False,
@@ -76,6 +78,9 @@ class JobIngestionService:
             location=normalized.location,
             description=normalized.description,
             requirements=normalized.requirements,
+            department=normalized.department,
+            employment_type=normalized.employment_type,
+            remote_status=normalized.remote_status,
             normalized_hash=normalized_hash,
             posted_at=normalized.posted_at,
         )
@@ -105,6 +110,22 @@ class JobIngestionService:
         """Find an existing normalized job by source and normalized hash."""
         return self._session.scalar(
             select(Job).where(Job.source_id == source_id, Job.normalized_hash == normalized_hash)
+        )
+
+    def _find_cross_source_duplicate(self, job: NormalizedJob) -> Job | None:
+        """Find an existing job from any source with the same canonical URL.
+
+        This merges the same posting discovered through multiple providers,
+        keeping a single canonical job record per URL.
+        """
+        normalized = job.url.strip().rstrip("/").lower()
+        if not normalized:
+            return None
+        return self._session.scalar(
+            select(Job).where(
+                func.replace(func.lower(func.trim(Job.url)), "/", "")
+                == func.replace(normalized, "/", "")
+            )
         )
 
     def _content_hash(self, source: JobSourceConfig, job: DiscoveredJob) -> str:

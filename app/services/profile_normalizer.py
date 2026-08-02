@@ -73,6 +73,7 @@ class ProfileNormalizer:
     PHONE_RE = re.compile(
         r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,4}"
     )
+    PHONE_YEAR_RE = re.compile(r"(?:19|20)\d{2}")
     URL_RE = re.compile(r"https?://[^\s]+")
     DATE_RE = re.compile(
         r"(\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
@@ -184,7 +185,7 @@ class ProfileNormalizer:
         name = first_lines[0] if first_lines else ""
 
         emails = self.EMAIL_RE.findall(text)
-        phones = self.PHONE_RE.findall(text)
+        phones = self._extract_phone(text)
         urls = self.URL_RE.findall(text)
 
         linkedin = next((u for u in urls if "linkedin" in u.lower()), None)
@@ -195,7 +196,6 @@ class ProfileNormalizer:
         )
 
         emails_list = list(set(emails))
-        phones_list = list({p.strip() for p in phones if p.strip()})
 
         # Nationality detection (first few lines, case-insensitive)
         first_50 = " ".join(first_lines[:20]).lower()
@@ -210,13 +210,47 @@ class ProfileNormalizer:
         return PersonalInfo(
             full_name=name.strip(),
             email=emails_list[0] if emails_list else None,
-            phone=phones_list[0] if phones_list else None,
+            phone=phones,
             nationality=nationality,
             linkedin_url=linkedin,
             github_url=github,
             portfolio_url=portfolio,
             summary=summary,
         )
+
+    def _extract_phone(self, text: str) -> str | None:
+        """Extract the most plausible phone number from raw resume text.
+
+        Bare 4-digit years (e.g. ``2025``) are rejected so they never shadow a
+        real phone number, and the strongest phone-like candidate is selected.
+        """
+        candidates: list[str] = []
+        seen: set[str] = set()
+        for match in self.PHONE_RE.findall(text):
+            candidate = match.strip()
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            if self._is_isolated_year(candidate):
+                continue
+            candidates.append(candidate)
+        if not candidates:
+            return None
+        return max(candidates, key=self._phone_strength)
+
+    @classmethod
+    def _is_isolated_year(cls, candidate: str) -> bool:
+        """Return True when a candidate is a bare year, not a phone number."""
+        digits = re.sub(r"\D", "", candidate)
+        return len(digits) == 4 and cls.PHONE_YEAR_RE.fullmatch(candidate) is not None
+
+    @staticmethod
+    def _phone_strength(candidate: str) -> tuple[int, int, int]:
+        """Rank phone candidates by digit count, then structure."""
+        digits = re.sub(r"\D", "", candidate)
+        has_prefix = 1 if candidate.startswith("+") else 0
+        has_separators = 1 if re.search(r"[()\-.\s]", candidate) else 0
+        return (len(digits), has_prefix, has_separators)
 
     def _parse_education(self, text: str) -> tuple[Education, ...]:
         """Parse education section into structured entries."""

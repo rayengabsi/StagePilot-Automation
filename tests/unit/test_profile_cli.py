@@ -58,6 +58,7 @@ def test_profile_import_success(
     exit_code = run_cli(["profile", "import", str(fake_resume)])
     assert exit_code == 0
     mock_svc.import_resume.assert_called_once()
+    mock_svc.get_completeness.assert_called_once()
 
 
 @patch("app.cli.commands.create_database_engine")
@@ -78,6 +79,115 @@ def test_profile_import_file_not_found(
     args.description = None
     result = _handle_profile_import(args, settings)
     assert result == 1
+
+
+@patch("app.cli.commands.create_database_engine")
+@patch("app.cli.commands.create_session_factory")
+@patch("app.cli.commands.session_scope")
+@patch("app.cli.commands.ProfileService")
+@patch("app.cli.commands.detect_parser")
+def test_profile_import_prints_all_validation_errors(
+    mock_detect: MagicMock,
+    mock_svc_cls: MagicMock,
+    mock_scope: MagicMock,
+    mock_factory: MagicMock,
+    mock_engine: MagicMock,
+    settings: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Profile import should print every structured validation error."""
+    from app.cli.commands import _handle_profile_import
+    from app.domain.master_profile.errors import ProfileValidationError, ValidationError
+
+    resume = tmp_path / "resume.md"
+    resume.write_text("John Doe\njohn@email", encoding="utf-8")
+
+    mock_svc = MagicMock()
+    mock_svc.import_resume.side_effect = ProfileValidationError(
+        [
+            ValidationError(
+                field="personal_info.email",
+                message="Invalid email format.",
+                value="john@email",
+            ),
+            ValidationError(
+                field="education[0].institution",
+                message="Institution name is required.",
+            ),
+        ]
+    )
+    mock_svc_cls.return_value = mock_svc
+    mock_scope.return_value.__enter__.return_value = MagicMock()
+    mock_scope.return_value.__exit__.return_value = None
+
+    args = MagicMock()
+    args.file = str(resume)
+    args.description = None
+    result = _handle_profile_import(args, settings)
+
+    assert result == 1
+    out = capsys.readouterr().out
+    assert "Profile validation failed." in out
+    assert "Field: personal_info.email" in out
+    assert "Reason: Invalid email format." in out
+    assert "Value: john@email" in out
+    assert "Field: education[0].institution" in out
+    assert "Reason: Institution name is required." in out
+
+
+def test_format_profile_validation_errors() -> None:
+    """Validation errors should be numbered with field, reason, and value."""
+    from app.cli.commands import _format_profile_validation_errors
+    from app.domain.master_profile.errors import ValidationError
+
+    errors = [
+        ValidationError(
+            field="personal_info.email",
+            message="Invalid email format.",
+            value="john@email",
+        ),
+        ValidationError(
+            field="education[0].institution",
+            message="Institution name is required.",
+        ),
+        ValidationError(
+            field="experience[0].company",
+            message="Company name is required.",
+        ),
+    ]
+
+    text = _format_profile_validation_errors(errors)
+
+    expected = "\n".join(
+        [
+            "Profile validation failed.",
+            "",
+            "1.",
+            "Field: personal_info.email",
+            "Reason: Invalid email format.",
+            "Value: john@email",
+            "",
+            "2.",
+            "Field: education[0].institution",
+            "Reason: Institution name is required.",
+            "",
+            "3.",
+            "Field: experience[0].company",
+            "Reason: Company name is required.",
+        ]
+    )
+    assert text == expected
+    assert text.count("Value:") == 1
+
+
+def test_format_profile_validation_errors_empty() -> None:
+    """An empty error list should still print the failure header."""
+    from app.cli.commands import _format_profile_validation_errors
+
+    text = _format_profile_validation_errors([])
+
+    assert text == "Profile validation failed.\n"
 
 
 @patch("app.cli.commands.create_database_engine")

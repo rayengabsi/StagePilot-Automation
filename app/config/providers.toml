@@ -1,0 +1,111 @@
+# StagePilot provider discovery configuration.
+#
+# Each provider section controls the HTTP behavior of its connector:
+#   enabled                  - whether the connector is registered in the registry
+#   timeout_seconds          - HTTP request timeout
+#   retry_attempts           - number of retries after transient failures
+#   min_interval_seconds     - minimum delay between paginated requests (rate limiting)
+#   rate_limit_per_minute    - advisory per-minute request budget
+#   base_headers             - extra headers sent on every request
+#
+# Providers not listed here fall back to the [defaults] section.
+
+[defaults]
+timeout_seconds = 20
+retry_attempts = 3
+min_interval_seconds = 0.5
+rate_limit_per_minute = 60
+
+[providers]
+enabled = [
+    "rss",
+    "greenhouse",
+    "lever",
+    "ashby",
+    "smart_recruiters",
+    "teamtailor",
+    "welcome_to_the_jungle",
+    "remote_ok",
+    "wellfound",
+    "company_pages",
+]
+
+[providers.rss]
+enabled = true
+timeout_seconds = 20
+retry_attempts = 3
+min_interval_seconds = 0.0
+rate_limit_per_minute = 60
+base_headers = {}
+
+[providers.greenhouse]
+enabled = true
+timeout_seconds = 20
+retry_attempts = 3
+min_interval_seconds = 0.5
+rate_limit_per_minute = 30
+base_headers = {}
+
+[providers.lever]
+enabled = true
+timeout_seconds = 20
+retry_attempts = 3
+min_interval_seconds = 0.5
+rate_limit_per_minute = 30
+base_headers = {}
+
+[providers.ashby]
+enabled = true
+timeout_seconds = 20
+retry_attempts = 3
+min_interval_seconds = 0.5
+rate_limit_per_minute = 30
+base_headers = {}
+
+[providers.smart_recruiters]
+enabled = true
+timeout_seconds = 20
+retry_attempts = 3
+min_interval_seconds = 0.5
+rate_limit_per_minute = 30
+base_headers = {}
+
+[providers.teamtailor]
+enabled = true
+timeout_seconds = 20
+retry_attempts = 3
+min_interval_seconds = 0.5
+rate_limit_per_minute = 30
+base_headers = { "x-api-version" = "20210218" }
+
+[providers.welcome_to_the_jungle]
+enabled = true
+timeout_seconds = 25
+retry_attempts = 2
+min_interval_seconds = 1.0
+rate_limit_per_minute = 10
+base_headers = {}
+
+[providers.remote_ok]
+enabled = true
+timeout_seconds = 20
+retry_attempts = 3
+min_interval_seconds = 1.0
+rate_limit_per_minute = 10
+base_headers = {}
+
+[providers.wellfound]
+enabled = true
+timeout_seconds = 25
+retry_attempts = 2
+min_interval_seconds = 1.0
+rate_limit_per_minute = 10
+base_headers = {}
+
+[providers.company_pages]
+enabled = true
+timeout_seconds = 25
+retry_attempts = 2
+min_interval_seconds = 1.0
+rate_limit_per_minute = 10
+base_headers = {}

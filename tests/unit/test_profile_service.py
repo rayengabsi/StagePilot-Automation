@@ -148,6 +148,75 @@ def test_get_completeness_after_import() -> None:
     assert "projects" in comp.missing_fields
 
 
+def test_first_import_becomes_active_profile() -> None:
+    """The first imported profile must be available as the current profile."""
+    session = _session()
+    service = ProfileService(
+        session=session,
+        parser=_FakeParser(),
+        normalizer=ProfileNormalizer(),
+        validator=ProfileValidator(),
+    )
+    service.import_resume(Path("fake.pdf"))
+    current = service.get_current_profile()
+    assert current.personal_info.full_name == "John Doe"
+    session.expire_all()
+    active = session.query(Profile).filter(Profile.active.is_(True)).all()
+    assert len(active) == 1
+
+
+def test_import_targets_existing_active_profile() -> None:
+    """Importing when an active profile exists must update it, not a stale row."""
+    session = _session()
+    service = ProfileService(
+        session=session,
+        parser=_FakeParser(),
+        normalizer=ProfileNormalizer(),
+        validator=ProfileValidator(),
+    )
+    service.import_resume(Path("fake.pdf"))
+    first_id = service.list_profiles()[0]["id"]
+
+    session.add(Profile(active=False, name="Stale"))
+    session.add(Profile(active=False, name="Stale 2"))
+    session.flush()
+
+    service.import_resume(Path("fake.pdf"))
+    session.expire_all()
+    active = session.query(Profile).filter(Profile.active.is_(True)).all()
+    assert len(active) == 1
+    assert active[0].id == first_id
+    versions = session.query(ProfileVersionRecord).filter_by(profile_id=first_id).all()
+    assert len(versions) == 2
+
+
+def test_import_activates_when_no_active_profile_exists() -> None:
+    """Reproduces the crash: rows exist but none active, then import + completeness."""
+    session = _session()
+    service = ProfileService(
+        session=session,
+        parser=_FakeParser(),
+        normalizer=ProfileNormalizer(),
+        validator=ProfileValidator(),
+    )
+    service.import_resume(Path("fake.pdf"))
+    pid = service.list_profiles()[0]["id"]
+    service.delete_profile(pid)
+
+    session.add(Profile(active=False, name="Stale"))
+    session.add(Profile(active=False, name="Stale 2"))
+    session.flush()
+
+    service.import_resume(Path("fake.pdf"))
+    current = service.get_current_profile()
+    assert current.personal_info.full_name == "John Doe"
+    comp = service.get_completeness()
+    assert comp.score > 0
+    session.expire_all()
+    active = session.query(Profile).filter(Profile.active.is_(True)).all()
+    assert len(active) == 1
+
+
 def test_export_creates_json_file(tmp_path: Path) -> None:
     session = _session()
     service = ProfileService(

@@ -7,6 +7,7 @@ from app.db.models.approval import (
     ApprovalEventRecord,
     ApprovalQueueRecord,
 )
+from app.db.models.discovery import DiscoveryMetricRecord
 from app.db.models.jobs import Job, JobSource, RawJob
 from app.db.models.matching import JobMatch
 from app.db.models.pipeline import PipelineRunRecord
@@ -32,6 +33,7 @@ __all__ = [
     "ApprovalQueueRecord",
     "AwardRecord",
     "CertificationRecord",
+    "DiscoveryMetricRecord",
     "EducationRecord",
     "ExperienceRecord",
     "Job",

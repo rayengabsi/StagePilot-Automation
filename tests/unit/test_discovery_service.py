@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.config.settings import FilterRules
 from app.db.base import Base
+from app.db.models.discovery import DiscoveryMetricRecord
 from app.db.models.jobs import Job, JobSource, RawJob
 from app.domain.jobs.entities import DiscoveredJob, JobSourceConfig
 from app.domain.jobs.enums import JobSourceType
@@ -74,6 +75,37 @@ def test_discovery_service_ingests_and_skips_duplicate_jobs() -> None:
     assert second.duplicate_count == 1
     assert session.scalar(select(func.count()).select_from(Job)) == 1
     assert session.scalar(select(func.count()).select_from(RawJob)) == 1
+
+
+def test_discovery_records_per_source_metrics() -> None:
+    """Each discovery run should persist a metric record per source."""
+    session = _create_session()
+    session.add(
+        JobSource(
+            name="Example",
+            type=JobSourceType.RSS_FEED.value,
+            base_url="https://example.com/rss.xml",
+            config_json={},
+            is_active=True,
+        )
+    )
+    session.commit()
+    service = DiscoveryService(
+        session=session,
+        connector_registry=ConnectorRegistry([_FakeConnector()]),
+        normalizer=JobNormalizationService(),
+        matching_service=_build_matching_service(session),
+    )
+
+    service.run_once()
+
+    metrics = session.scalars(select(DiscoveryMetricRecord)).all()
+    assert len(metrics) == 1
+    metric = metrics[0]
+    assert metric.provider == "rss_feed"
+    assert metric.jobs_fetched == 1
+    assert metric.jobs_inserted == 1
+    assert metric.status == "ok"
 
 
 def test_discovery_reports_rejection_metrics() -> None:

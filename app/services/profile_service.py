@@ -75,7 +75,9 @@ class ProfileService:
         completeness: ProfileCompleteness,
         description: str,
     ) -> None:
-        profile_row = self._session.scalar(select(Profile).limit(1))
+        profile_row = self._session.scalar(
+            select(Profile).where(Profile.active.is_(True)).limit(1)
+        )
         if profile_row is None:
             profile_row = Profile(active=True)
             self._session.add(profile_row)

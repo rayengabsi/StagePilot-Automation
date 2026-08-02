@@ -17,8 +17,7 @@ from app.domain.approval.package import (
     create_application_package,
 )
 from app.domain.recommendation.entities import Recommendation
-from app.infrastructure.job_sources.registry import ConnectorRegistry
-from app.infrastructure.job_sources.rss_feed_connector import RssFeedConnector
+from app.infrastructure.job_sources.registry import build_connector_registry
 from app.infrastructure.parsers.pdf_parser import PDFParser
 from app.rendering.models import CoverLetterData
 from app.rendering.renderer_factory import RendererFactory
@@ -240,7 +239,7 @@ class PipelineOrchestrator:
 
     def _run_discovery(self, errors: list[dict[str, Any]]) -> Any | None:  # noqa: ANN401
         try:
-            registry = ConnectorRegistry([RssFeedConnector(self._settings)])
+            registry = build_connector_registry(self._settings)
             filter_service = HardFilterService(self._settings.filter_rules)
             duplicate_service = DuplicateDetectionService(
                 self._session,

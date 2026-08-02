@@ -12,8 +12,9 @@ from app.config.logging import configure_logging
 from app.config.settings import Settings, get_settings
 from app.db.models.profile import Profile
 from app.db.session import create_database_engine, create_session_factory, session_scope
-from app.infrastructure.job_sources.registry import ConnectorRegistry
-from app.infrastructure.job_sources.rss_feed_connector import RssFeedConnector
+from app.domain.master_profile.errors import ProfileValidationError
+from app.domain.master_profile.errors import ValidationError as ProfileValidationIssue
+from app.infrastructure.job_sources.registry import build_connector_registry
 from app.infrastructure.parsers.parser_factory import detect_parser
 from app.infrastructure.parsers.pdf_parser import PDFParser
 from app.services.ai_orchestrator import AIOrchestrator
@@ -70,6 +71,132 @@ def _build_parser() -> argparse.ArgumentParser:
     add_rss_parser.add_argument("--name", required=True, help="Unique source name.")
     add_rss_parser.add_argument("--url", required=True, help="RSS or Atom feed URL.")
     add_rss_parser.set_defaults(handler=_handle_add_rss_source)
+
+    def _provider_parser(name: str, help_text: str) -> argparse.ArgumentParser:
+        parser = sources_subparsers.add_parser(name, help=help_text)
+        parser.add_argument("--name", required=True, help="Unique source name.")
+        parser.add_argument("--url", required=True, help="Base URL for the provider.")
+        parser.add_argument("--company", type=str, default=None, help="Company display name.")
+        parser.add_argument("--config", type=str, default=None, help="Extra JSON config.")
+        return parser
+
+    add_greenhouse = _provider_parser(
+        "add-greenhouse", "Add a Greenhouse job board source."
+    )
+    add_greenhouse.add_argument("--token", type=str, default=None, help="Greenhouse board token.")
+    add_greenhouse.set_defaults(
+        handler=lambda a, s: _handle_add_provider_source(
+            a, s, "greenhouse", _build_config(a, "token")
+        )
+    )
+
+    add_lever = _provider_parser("add-lever", "Add a Lever postings source.")
+    add_lever.set_defaults(
+        handler=lambda a, s: _handle_add_provider_source(
+            a, s, "lever", _build_config(a, "company")
+        )
+    )
+
+    add_ashby = _provider_parser("add-ashby", "Add an Ashby job board source.")
+    add_ashby.add_argument("--board", type=str, default=None, help="Ashby board identifier.")
+    add_ashby.set_defaults(
+        handler=lambda a, s: _handle_add_provider_source(
+            a, s, "ashby", _build_config(a, "board", "company")
+        )
+    )
+
+    add_smart = _provider_parser("add-smartrecruiters", "Add a SmartRecruiters source.")
+    add_smart.set_defaults(
+        handler=lambda a, s: _handle_add_provider_source(
+            a, s, "smart_recruiters", _build_config(a, "company")
+        )
+    )
+
+    add_teamtailor = _provider_parser("add-teamtailor", "Add a Teamtailor source.")
+    add_teamtailor.add_argument(
+        "--api-key", type=str, default=None, help="Teamtailor API key."
+    )
+    add_teamtailor.set_defaults(
+        handler=lambda a, s: _handle_add_provider_source(
+            a, s, "teamtailor", _build_config(a, "api_key", "company")
+        )
+    )
+
+    add_wttj = _provider_parser(
+        "add-wttj", "Add a Welcome to the Jungle (WelcomeKit) source."
+    )
+    add_wttj.add_argument("--slug", type=str, default=None, help="Organization slug.")
+    add_wttj.set_defaults(
+        handler=lambda a, s: _handle_add_provider_source(
+            a, s, "welcome_to_the_jungle", _build_config(a, "slug", "company")
+        )
+    )
+
+    add_remoteok = _provider_parser("add-remoteok", "Add the RemoteOK remote jobs feed.")
+    add_remoteok.set_defaults(
+        handler=lambda a, s: _handle_add_provider_source(
+            a, s, "remote_ok", _build_config(a, "company")
+        )
+    )
+
+    add_wellfound = _provider_parser("add-wellfound", "Add a Wellfound (AngelList) source.")
+    add_wellfound.add_argument(
+        "--token", type=str, default=None, help="Optional AngelList API token."
+    )
+    add_wellfound.set_defaults(
+        handler=lambda a, s: _handle_add_provider_source(
+            a, s, "wellfound", _build_config(a, "token", "company")
+        )
+    )
+
+    add_company = _provider_parser("add-company", "Add a configurable career page source.")
+    add_company.add_argument(
+        "--selector", required=True, help="CSS selector for job post links."
+    )
+    add_company.add_argument("--list-url", type=str, default=None, help="Jobs listing URL.")
+    add_company.add_argument("--next-selector", type=str, default=None, help="Next page selector.")
+    add_company.add_argument("--title-selector", type=str, default=None, help="Job title selector.")
+    add_company.add_argument(
+        "--description-selector", type=str, default=None, help="Job description selector."
+    )
+    add_company.add_argument(
+        "--max-pages", type=int, default=1, help="Max listing pages to crawl."
+    )
+    add_company.add_argument(
+        "--no-scrape-details", action="store_true", help="Do not fetch job detail pages."
+    )
+    add_company.set_defaults(
+        handler=lambda a, s: _handle_add_provider_source(
+            a, s, "company_pages", _build_company_config(a)
+        )
+    )
+
+    remove_parser = sources_subparsers.add_parser("remove", help="Remove a job source.")
+    remove_parser.add_argument("--id", type=int, default=None, help="Source ID to remove.")
+    remove_parser.add_argument("--name", type=str, default=None, help="Source name to remove.")
+    remove_parser.set_defaults(handler=_handle_remove_source)
+
+    enable_parser = sources_subparsers.add_parser("enable", help="Enable a job source.")
+    enable_parser.add_argument("--id", type=int, default=None, help="Source ID.")
+    enable_parser.add_argument("--name", type=str, default=None, help="Source name.")
+    enable_parser.set_defaults(handler=lambda a, s: _handle_set_source_active(a, s, True))
+
+    disable_parser = sources_subparsers.add_parser("disable", help="Disable a job source.")
+    disable_parser.add_argument("--id", type=int, default=None, help="Source ID.")
+    disable_parser.add_argument("--name", type=str, default=None, help="Source name.")
+    disable_parser.set_defaults(handler=lambda a, s: _handle_set_source_active(a, s, False))
+
+    refresh_parser = sources_subparsers.add_parser("refresh", help="Fetch jobs from one source.")
+    refresh_parser.add_argument("--id", type=int, required=True, help="Source ID.")
+    refresh_parser.set_defaults(handler=_handle_refresh_source)
+
+    health_parser = sources_subparsers.add_parser("health", help="Check source connectivity.")
+    health_parser.add_argument("--id", type=int, required=True, help="Source ID.")
+    health_parser.set_defaults(handler=_handle_source_health)
+
+    test_parser = sources_subparsers.add_parser("test", help="Validate a source and dry-run fetch.")
+    test_parser.add_argument("--id", type=int, required=True, help="Source ID.")
+    test_parser.set_defaults(handler=_handle_test_source)
 
     list_parser = sources_subparsers.add_parser("list", help="List configured job sources.")
     list_parser.set_defaults(handler=_handle_list_sources)
@@ -505,7 +632,7 @@ def _handle_discover(args: argparse.Namespace, settings: Settings) -> int:
     engine = create_database_engine(settings)
     session_factory = create_session_factory(engine)
     with session_scope(session_factory) as session:
-        registry = ConnectorRegistry([RssFeedConnector(settings)])
+        registry = build_connector_registry(settings)
         filter_service = HardFilterService(settings.filter_rules)
         duplicate_service = DuplicateDetectionService(
             session, fuzzy_threshold=settings.filter_rules.fuzzy_title_threshold
@@ -541,6 +668,238 @@ def _handle_add_rss_source(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+_PROVIDER_SOURCE_TYPES = {
+    "greenhouse": "greenhouse",
+    "lever": "lever",
+    "ashby": "ashby",
+    "smart_recruiters": "smart_recruiters",
+    "teamtailor": "teamtailor",
+    "welcome_to_the_jungle": "welcome_to_the_jungle",
+    "remote_ok": "remote_ok",
+    "wellfound": "wellfound",
+    "company_pages": "company_pages",
+}
+
+
+def _build_config(args: argparse.Namespace, *keys: str) -> dict[str, object]:
+    """Build a provider config dict from CLI flags, skipping unset values."""
+    config: dict[str, object] = {}
+    for key in keys:
+        value = getattr(args, key, None)
+        if value is not None:
+            config[key] = value
+    extra = getattr(args, "config", None)
+    if extra:
+        config.update(json.loads(extra))
+    return config
+
+
+def _build_company_config(args: argparse.Namespace) -> dict[str, object]:
+    """Build a company_pages config dict from CLI flags."""
+    config: dict[str, object] = {
+        "job_links_selector": args.selector,
+        "scrape_details": not getattr(args, "no_scrape_details", False),
+    }
+    if args.list_url:
+        config["list_url"] = args.list_url
+    if args.next_selector:
+        config["next_page_selector"] = args.next_selector
+    if args.title_selector:
+        config["title_selector"] = args.title_selector
+    if args.description_selector:
+        config["description_selector"] = args.description_selector
+    config["max_pages"] = getattr(args, "max_pages", 1) or 1
+    if args.company:
+        config["company"] = args.company
+    return config
+
+
+def _handle_add_provider_source(
+    args: argparse.Namespace,
+    settings: Settings,
+    provider_name: str,
+    config: dict[str, object],
+) -> int:
+    """Handle the commands that add a provider-specific source."""
+    source_type_name = _PROVIDER_SOURCE_TYPES[provider_name]
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        from app.domain.jobs.enums import JobSourceType
+
+        source = JobSourceRepository(session).add_source(
+            name=args.name,
+            source_type=JobSourceType(source_type_name),
+            base_url=args.url,
+            config=config,
+        )
+        payload = {
+            "id": source.id,
+            "name": source.name,
+            "type": source.type,
+            "base_url": source.base_url,
+            "config": source.config_json,
+        }
+    print(json.dumps(payload, sort_keys=True))
+    return 0
+
+
+def _resolve_source_id(
+    args: argparse.Namespace, repo: JobSourceRepository
+) -> int | None:
+    """Resolve a source ID from --id or --name flags."""
+    if getattr(args, "id", None) is not None:
+        return int(args.id)
+    name = getattr(args, "name", None)
+    if name:
+        source = repo.get_source_by_name(name)
+        if source is not None:
+            return source.id
+    return None
+
+
+def _handle_remove_source(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the sources remove command."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        repo = JobSourceRepository(session)
+        source_id = _resolve_source_id(args, repo)
+        if source_id is None:
+            print(json.dumps({"error": "source --id or --name is required"}))
+            return 1
+        removed = repo.remove_source(source_id)
+        payload = {"removed": removed, "source_id": source_id}
+    print(json.dumps(payload, sort_keys=True))
+    return 0 if removed else 1
+
+
+def _handle_set_source_active(
+    args: argparse.Namespace, settings: Settings, is_active: bool
+) -> int:
+    """Handle the sources enable/disable commands."""
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        repo = JobSourceRepository(session)
+        source_id = _resolve_source_id(args, repo)
+        if source_id is None:
+            print(json.dumps({"error": "source --id or --name is required"}))
+            return 1
+        source = repo.set_source_active(source_id, is_active)
+        payload = {
+            "id": source.id,
+            "name": source.name,
+            "is_active": source.is_active,
+        }
+    print(json.dumps(payload, sort_keys=True))
+    return 0
+
+
+def _handle_refresh_source(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the sources refresh command."""
+    from app.domain.jobs.entities import JobSourceConfig
+    from app.domain.jobs.enums import JobSourceType
+    from app.services.discovery_service import DiscoveryService
+    from app.services.duplicate_detection_service import DuplicateDetectionService
+    from app.services.filtering_service import HardFilterService
+    from app.services.job_matching_service import JobMatchingService
+    from app.services.job_normalization_service import JobNormalizationService
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        repo = JobSourceRepository(session)
+        record = repo.get_source(args.id)
+        config = JobSourceConfig(
+            id=record.id,
+            name=record.name,
+            type=JobSourceType(record.type),
+            base_url=record.base_url,
+            config=record.config_json,
+        )
+        registry = build_connector_registry(settings)
+        filter_service = HardFilterService(settings.filter_rules)
+        duplicate_service = DuplicateDetectionService(
+            session, fuzzy_threshold=settings.filter_rules.fuzzy_title_threshold
+        )
+        matching_service = JobMatchingService(session, filter_service, duplicate_service)
+        service = DiscoveryService(
+            session=session,
+            connector_registry=registry,
+            normalizer=JobNormalizationService(),
+            matching_service=matching_service,
+        )
+        summary = service.run_source(config)
+    print(json.dumps(asdict(summary), sort_keys=True))
+    return 0
+
+
+def _handle_source_health(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the sources health command."""
+    from app.domain.jobs.entities import JobSourceConfig
+    from app.domain.jobs.enums import JobSourceType
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        repo = JobSourceRepository(session)
+        record = repo.get_source(args.id)
+        config = JobSourceConfig(
+            id=record.id,
+            name=record.name,
+            type=JobSourceType(record.type),
+            base_url=record.base_url,
+            config=record.config_json,
+        )
+        registry = build_connector_registry(settings)
+        connector = registry.get(config.type)
+        health = connector.health(config)
+        payload = {
+            "provider": health.provider,
+            "status": health.status,
+            "latency_ms": health.latency_ms,
+            "message": health.message,
+        }
+    print(json.dumps(payload, sort_keys=True))
+    return 0 if health.status == "healthy" else 1
+
+
+def _handle_test_source(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the sources test command (validate + dry-run fetch)."""
+    from app.domain.jobs.entities import JobSourceConfig
+    from app.domain.jobs.enums import JobSourceType
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        repo = JobSourceRepository(session)
+        record = repo.get_source(args.id)
+        config = JobSourceConfig(
+            id=record.id,
+            name=record.name,
+            type=JobSourceType(record.type),
+            base_url=record.base_url,
+            config=record.config_json,
+        )
+        registry = build_connector_registry(settings)
+        connector = registry.get(config.type)
+        errors = connector.validate(config)
+        payload: dict[str, object] = {
+            "source_id": record.id,
+            "name": record.name,
+            "provider": connector.provider_name_value(),
+            "valid": not errors,
+            "errors": errors,
+        }
+        if not errors:
+            jobs = connector.fetch(config)
+            payload["fetched_count"] = len(jobs)
+            payload["sample_titles"] = [j.title for j in jobs[:5]]
+    print(json.dumps(payload, sort_keys=True))
+    return 0 if not errors else 1
+
+
 def _build_profile_service(settings: Settings) -> ProfileService:
     """Build a ProfileService with its dependencies."""
     engine = create_database_engine(settings)
@@ -552,6 +911,20 @@ def _build_profile_service(settings: Settings) -> ProfileService:
         normalizer=ProfileNormalizer(),
         validator=ProfileValidator(),
     )
+
+
+def _format_profile_validation_errors(errors: list[ProfileValidationIssue]) -> str:
+    """Format structured profile validation errors for the CLI output."""
+    lines: list[str] = ["Profile validation failed.", ""]
+    for index, error in enumerate(errors, start=1):
+        if index > 1:
+            lines.append("")
+        lines.append(f"{index}.")
+        lines.append(f"Field: {error.field}")
+        lines.append(f"Reason: {error.message}")
+        if error.value is not None:
+            lines.append(f"Value: {error.value}")
+    return "\n".join(lines)
 
 
 def _handle_profile_import(args: argparse.Namespace, settings: Settings) -> int:
@@ -569,7 +942,11 @@ def _handle_profile_import(args: argparse.Namespace, settings: Settings) -> int:
         if not file_path.exists():
             print(json.dumps({"error": f"File not found: {file_path}"}))
             return 1
-        profile = service.import_resume(file_path, description=args.description)
+        try:
+            profile = service.import_resume(file_path, description=args.description)
+        except ProfileValidationError as exc:
+            print(_format_profile_validation_errors(exc.errors))
+            return 1
         completeness = service.get_completeness()
         result = {
             "status": "imported",

@@ -8,6 +8,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.models.discovery import DiscoveryMetricRecord
 from app.db.models.jobs import Job
 from app.db.models.matching import JobMatch
 from app.domain.jobs.entities import JobSourceConfig
@@ -87,6 +88,21 @@ class DiscoveryService:
         logger.info("discovery_completed", extra=asdict(result))
         return result
 
+    def run_source(self, source: JobSourceConfig) -> DiscoverySummary:
+        """Run discovery for a single configured source and persist metrics."""
+        run_id = str(uuid4())
+        summary = _MutableDiscoverySummary(
+            run_id=run_id,
+            sources_count=1,
+            match_counters=MutableMatchCounters(),
+        )
+        started = time.monotonic()
+        self._discover_source(source, summary)
+        summary.duration_seconds = time.monotonic() - started
+        result = summary.freeze()
+        logger.info("source_discovery_completed", extra=asdict(result))
+        return result
+
     def _discover_source(self, source: JobSourceConfig, summary: _MutableDiscoverySummary) -> None:
         """Discover and ingest jobs from one source."""
         logger.info(
@@ -98,10 +114,13 @@ class DiscoveryService:
                 "source_type": source.type.value,
             },
         )
+        source_started = time.monotonic()
+        source_stats = _SourceStats()
         try:
             connector = self._registry.get(source.type)
             discovered_jobs = connector.fetch(source)
             summary.fetched_count += len(discovered_jobs)
+            source_stats.jobs_fetched = len(discovered_jobs)
             logger.info(
                 "source_fetch_succeeded",
                 extra={
@@ -110,12 +129,14 @@ class DiscoveryService:
                     "items_count": len(discovered_jobs),
                 },
             )
+            counters_before = _snapshot_counters(summary.match_counters)
             for discovered in discovered_jobs:
                 try:
                     normalized = self._normalizer.normalize(discovered)
                     result = self._ingestion.ingest(source, discovered, normalized)
                 except JobNormalizationError as exc:
                     summary.invalid_count += 1
+                    source_stats.invalid += 1
                     logger.warning(
                         "job_invalid_skipped",
                         extra={
@@ -128,6 +149,7 @@ class DiscoveryService:
 
                 if result.duplicate:
                     summary.duplicate_count += 1
+                    source_stats.duplicates += 1
                     logger.info(
                         "job_duplicate_skipped",
                         extra={
@@ -139,6 +161,7 @@ class DiscoveryService:
                     )
                 elif result.job_id is not None:
                     summary.inserted_count += 1
+                    source_stats.jobs_inserted += 1
                     logger.info(
                         "job_ingested",
                         extra={
@@ -150,10 +173,20 @@ class DiscoveryService:
                         },
                     )
                     self._process_job(result.job_id, summary)
+            counters_after = _snapshot_counters(summary.match_counters)
+            source_stats.accepted = counters_after["accepted"] - counters_before["accepted"]
+            source_stats.rejected = counters_after["rejected"] - counters_before["rejected"]
+            source_stats.latency_ms = round((time.monotonic() - source_started) * 1000, 2)
+            self._record_metric(source, summary.run_id, source_stats)
             self._session.commit()
         except DiscoveryError as exc:
             self._session.rollback()
             summary.failed_sources_count += 1
+            source_stats.status = "failed"
+            source_stats.error = str(exc)
+            source_stats.latency_ms = round((time.monotonic() - source_started) * 1000, 2)
+            self._record_metric(source, summary.run_id, source_stats)
+            self._session.commit()
             logger.exception(
                 "source_discovery_failed",
                 extra={
@@ -162,6 +195,31 @@ class DiscoveryService:
                     "error_type": type(exc).__name__,
                 },
             )
+
+    def _record_metric(
+        self,
+        source: JobSourceConfig,
+        run_id: str,
+        stats: _SourceStats,
+    ) -> None:
+        """Persist a discovery metric record for a single source."""
+        self._session.add(
+            DiscoveryMetricRecord(
+                run_id=run_id,
+                source_id=source.id,
+                source_name=source.name,
+                provider=source.type.value,
+                jobs_fetched=stats.jobs_fetched,
+                jobs_inserted=stats.jobs_inserted,
+                duplicates=stats.duplicates,
+                invalid=stats.invalid,
+                accepted=stats.accepted,
+                rejected=stats.rejected,
+                latency_ms=stats.latency_ms,
+                status=stats.status,
+                error=stats.error,
+            )
+        )
 
     def _process_job(self, job_id: int, summary: _MutableDiscoverySummary) -> None:
         """Apply filters and duplicate detection to a single ingested job."""
@@ -183,6 +241,32 @@ class DiscoveryService:
                 self._matching.process(job, counters=summary.match_counters)
         if job_ids:
             self._session.commit()
+
+
+def _snapshot_counters(counters: MutableMatchCounters | None) -> dict[str, int]:
+    """Snapshot the match counters for per-source metric deltas."""
+    if counters is None:
+        return {"accepted": 0, "rejected": 0, "duplicates": 0}
+    return {
+        "accepted": counters.accepted,
+        "rejected": counters.rejected,
+        "duplicates": counters.duplicates,
+    }
+
+
+@dataclass(slots=True)
+class _SourceStats:
+    """Per-source counters used to build a discovery metric record."""
+
+    jobs_fetched: int = 0
+    jobs_inserted: int = 0
+    duplicates: int = 0
+    invalid: int = 0
+    accepted: int = 0
+    rejected: int = 0
+    latency_ms: float | None = None
+    status: str = "ok"
+    error: str | None = None
 
 
 @dataclass(slots=True)

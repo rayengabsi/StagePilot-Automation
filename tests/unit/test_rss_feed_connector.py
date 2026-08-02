@@ -1,42 +1,49 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 
-import requests
 from app.config.settings import Settings
 from app.domain.jobs.entities import JobSourceConfig
 from app.domain.jobs.enums import JobSourceType
 from app.infrastructure.job_sources.rss_feed_connector import RssFeedConnector
-from pytest import MonkeyPatch
 
 
-class _Response:
-    """Minimal requests response test double."""
-
-    status_code = 200
+class _FakeHttpClient:
+    """Minimal HTTP client test double returning a fixed body."""
 
     def __init__(self, text: str) -> None:
-        """Initialize the response with text content."""
-        self.text = text
+        """Initialize the fake with the response body."""
+        self._text = text
 
-    def raise_for_status(self) -> None:
-        """Simulate a successful HTTP response."""
+    def get_text(
+        self,
+        _url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        params: dict[str, object] | None = None,
+    ) -> str:
+        """Return the configured response body."""
+        return self._text
+
+    def get_json(
+        self,
+        _url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        params: dict[str, object] | None = None,
+    ) -> object:
+        """Unused for the RSS connector."""
+        raise AssertionError("get_json should not be called for RSS feeds")
 
 
-def _fake_get(xml: str) -> Callable[..., _Response]:
-    """Return a requests.get test double for static XML."""
-
-    def _get(_url: str, **_kwargs: object) -> _Response:
-        return _Response(xml)
-
-    return _get
+def _connector(xml: str) -> RssFeedConnector:
+    """Build an RSS connector backed by a fake HTTP client."""
+    return RssFeedConnector(Settings(), http_client=_FakeHttpClient(xml))
 
 
-def test_rss_connector_parses_rss_items(monkeypatch: MonkeyPatch) -> None:
+def test_rss_connector_parses_rss_items() -> None:
     """RSS connector should parse valid RSS items and skip incomplete ones."""
     xml = Path("tests/fixtures/rss/jobs.xml").read_text(encoding="utf-8")
-    monkeypatch.setattr(requests, "get", _fake_get(xml))
     source = JobSourceConfig(
         id=1,
         name="Example RSS",
@@ -44,7 +51,7 @@ def test_rss_connector_parses_rss_items(monkeypatch: MonkeyPatch) -> None:
         base_url="https://example.com/rss.xml",
     )
 
-    jobs = RssFeedConnector(Settings()).fetch(source)
+    jobs = _connector(xml).fetch(source)
 
     assert len(jobs) == 1
     assert jobs[0].external_id == "job-1"
@@ -52,10 +59,9 @@ def test_rss_connector_parses_rss_items(monkeypatch: MonkeyPatch) -> None:
     assert jobs[0].company == "Example RSS"
 
 
-def test_rss_connector_parses_atom_entries(monkeypatch: MonkeyPatch) -> None:
+def test_rss_connector_parses_atom_entries() -> None:
     """RSS connector should also parse Atom feeds."""
     xml = Path("tests/fixtures/rss/jobs.atom").read_text(encoding="utf-8")
-    monkeypatch.setattr(requests, "get", _fake_get(xml))
     source = JobSourceConfig(
         id=1,
         name="Example Atom",
@@ -63,7 +69,7 @@ def test_rss_connector_parses_atom_entries(monkeypatch: MonkeyPatch) -> None:
         base_url="https://example.com/atom.xml",
     )
 
-    jobs = RssFeedConnector(Settings()).fetch(source)
+    jobs = _connector(xml).fetch(source)
 
     assert len(jobs) == 1
     assert jobs[0].external_id == "atom-job-1"

@@ -19,3 +19,15 @@ class SourceParseError(DiscoveryError):
 
 class JobNormalizationError(DiscoveryError):
     """Raised when a discovered job cannot be normalized."""
+
+
+class SourceConfigError(DiscoveryError):
+    """Raised when a source is missing required configuration."""
+
+
+class PaginationError(DiscoveryError):
+    """Raised when a provider pagination response is malformed."""
+
+
+class RateLimitExceededError(DiscoveryError):
+    """Raised when a provider rate limit prevents further requests."""
