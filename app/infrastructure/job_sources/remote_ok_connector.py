@@ -37,7 +37,9 @@ class RemoteOkConnector(BaseJobSourceConnector):
         return PageResult(items=jobs, next_cursor=None)
 
     def normalize(
-        self, raw: dict[str, Any], source: JobSourceConfig  # noqa: ARG002
+        self,
+        raw: dict[str, Any],
+        source: JobSourceConfig,  # noqa: ARG002
     ) -> DiscoveredJob | None:
         """Convert a RemoteOK job payload into a discovered job."""
         title = clean_text(raw.get("position"))

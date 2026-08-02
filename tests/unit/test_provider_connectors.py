@@ -51,9 +51,7 @@ class _FakeHttp:
 
 def _connector(connector_cls: type, fake: _FakeHttp) -> object:
     """Build a connector with a fake HTTP client and no throttling."""
-    return connector_cls(
-        Settings(), http_client=fake, rate_limiter=RateLimiter(0.0)
-    )
+    return connector_cls(Settings(), http_client=fake, rate_limiter=RateLimiter(0.0))
 
 
 def _source(
@@ -209,9 +207,7 @@ class TestSmartRecruitersConnector:
                     "department": {"label": "Data"},
                     "releasedDate": "2026-02-01T00:00:00Z",
                     "jobAd": {
-                        "sections": [
-                            {"title": "description", "jobDescription": "Analyze data"}
-                        ]
+                        "sections": [{"title": "description", "jobDescription": "Analyze data"}]
                     },
                 }
             ],

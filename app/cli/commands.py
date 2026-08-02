@@ -34,6 +34,7 @@ from app.services.profile_validator import ProfileValidator
 from app.services.prompt_service import PromptService
 from app.services.recommendation_service import RecommendationService
 from app.services.resume_tailor_service import ResumeTailorService
+from app.services.source_validation_service import SourceValidationService
 from app.utils import pii as pii_utils
 
 
@@ -80,9 +81,7 @@ def _build_parser() -> argparse.ArgumentParser:
         parser.add_argument("--config", type=str, default=None, help="Extra JSON config.")
         return parser
 
-    add_greenhouse = _provider_parser(
-        "add-greenhouse", "Add a Greenhouse job board source."
-    )
+    add_greenhouse = _provider_parser("add-greenhouse", "Add a Greenhouse job board source.")
     add_greenhouse.add_argument("--token", type=str, default=None, help="Greenhouse board token.")
     add_greenhouse.set_defaults(
         handler=lambda a, s: _handle_add_provider_source(
@@ -92,9 +91,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     add_lever = _provider_parser("add-lever", "Add a Lever postings source.")
     add_lever.set_defaults(
-        handler=lambda a, s: _handle_add_provider_source(
-            a, s, "lever", _build_config(a, "company")
-        )
+        handler=lambda a, s: _handle_add_provider_source(a, s, "lever", _build_config(a, "company"))
     )
 
     add_ashby = _provider_parser("add-ashby", "Add an Ashby job board source.")
@@ -113,18 +110,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     add_teamtailor = _provider_parser("add-teamtailor", "Add a Teamtailor source.")
-    add_teamtailor.add_argument(
-        "--api-key", type=str, default=None, help="Teamtailor API key."
-    )
+    add_teamtailor.add_argument("--api-key", type=str, default=None, help="Teamtailor API key.")
     add_teamtailor.set_defaults(
         handler=lambda a, s: _handle_add_provider_source(
             a, s, "teamtailor", _build_config(a, "api_key", "company")
         )
     )
 
-    add_wttj = _provider_parser(
-        "add-wttj", "Add a Welcome to the Jungle (WelcomeKit) source."
-    )
+    add_wttj = _provider_parser("add-wttj", "Add a Welcome to the Jungle (WelcomeKit) source.")
     add_wttj.add_argument("--slug", type=str, default=None, help="Organization slug.")
     add_wttj.set_defaults(
         handler=lambda a, s: _handle_add_provider_source(
@@ -150,18 +143,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     add_company = _provider_parser("add-company", "Add a configurable career page source.")
-    add_company.add_argument(
-        "--selector", required=True, help="CSS selector for job post links."
-    )
+    add_company.add_argument("--selector", required=True, help="CSS selector for job post links.")
     add_company.add_argument("--list-url", type=str, default=None, help="Jobs listing URL.")
     add_company.add_argument("--next-selector", type=str, default=None, help="Next page selector.")
     add_company.add_argument("--title-selector", type=str, default=None, help="Job title selector.")
     add_company.add_argument(
         "--description-selector", type=str, default=None, help="Job description selector."
     )
-    add_company.add_argument(
-        "--max-pages", type=int, default=1, help="Max listing pages to crawl."
-    )
+    add_company.add_argument("--max-pages", type=int, default=1, help="Max listing pages to crawl.")
     add_company.add_argument(
         "--no-scrape-details", action="store_true", help="Do not fetch job detail pages."
     )
@@ -200,6 +189,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     list_parser = sources_subparsers.add_parser("list", help="List configured job sources.")
     list_parser.set_defaults(handler=_handle_list_sources)
+
+    benchmark_parser = sources_subparsers.add_parser(
+        "benchmark",
+        help="Run the connector validation benchmark across configured sources.",
+    )
+    benchmark_parser.set_defaults(handler=_handle_sources_benchmark)
 
     profile_parser = subparsers.add_parser("profile", help="Manage the master profile.")
     profile_subparsers = profile_parser.add_subparsers(dest="profile_command")
@@ -744,9 +739,7 @@ def _handle_add_provider_source(
     return 0
 
 
-def _resolve_source_id(
-    args: argparse.Namespace, repo: JobSourceRepository
-) -> int | None:
+def _resolve_source_id(args: argparse.Namespace, repo: JobSourceRepository) -> int | None:
     """Resolve a source ID from --id or --name flags."""
     if getattr(args, "id", None) is not None:
         return int(args.id)
@@ -774,9 +767,7 @@ def _handle_remove_source(args: argparse.Namespace, settings: Settings) -> int:
     return 0 if removed else 1
 
 
-def _handle_set_source_active(
-    args: argparse.Namespace, settings: Settings, is_active: bool
-) -> int:
+def _handle_set_source_active(args: argparse.Namespace, settings: Settings, is_active: bool) -> int:
     """Handle the sources enable/disable commands."""
     engine = create_database_engine(settings)
     session_factory = create_session_factory(engine)
@@ -1186,6 +1177,39 @@ def _handle_list_sources(_args: argparse.Namespace, settings: Settings) -> int:
         ]
 
     print(json.dumps(sources, sort_keys=True))
+    return 0
+
+
+def _handle_sources_benchmark(_args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the sources benchmark command.
+
+    Runs the connector validation benchmark for every configured source and
+    prints a health report with success rate, response time, normalization
+    quality, duplicate rate, and error handling metrics.
+    """
+    from app.domain.jobs.entities import JobSourceConfig
+    from app.domain.jobs.enums import JobSourceType
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        repo = JobSourceRepository(session)
+        records = repo.list_sources()
+        source_configs = [
+            JobSourceConfig(
+                id=record.id,
+                name=record.name,
+                type=JobSourceType(record.type),
+                base_url=record.base_url,
+                config=record.config_json,
+            )
+            for record in records
+        ]
+        registry = build_connector_registry(settings)
+        service = SourceValidationService(settings=settings, registry=registry)
+        report = service.benchmark_sources(source_configs)
+
+    print(json.dumps(report.to_dict(), indent=2, sort_keys=True, default=str))
     return 0
 
 

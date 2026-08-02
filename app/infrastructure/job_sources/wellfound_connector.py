@@ -56,9 +56,7 @@ class WellfoundConnector(BaseJobSourceConnector):
         next_cursor = None if reached_end else cursor + _PAGE_SIZE
         return PageResult(items=jobs, next_cursor=next_cursor)
 
-    def normalize(
-        self, raw: dict[str, Any], source: JobSourceConfig
-    ) -> DiscoveredJob | None:
+    def normalize(self, raw: dict[str, Any], source: JobSourceConfig) -> DiscoveredJob | None:
         """Convert a Wellfound job payload into a discovered job."""
         title = clean_text(raw.get("title"))
         url = self._job_url(raw)

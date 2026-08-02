@@ -146,6 +146,19 @@ class DiscoveryService:
                         },
                     )
                     continue
+                except Exception as exc:
+                    summary.invalid_count += 1
+                    source_stats.invalid += 1
+                    logger.warning(
+                        "job_error_skipped",
+                        extra={
+                            "run_id": summary.run_id,
+                            "source_id": source.id,
+                            "error_type": type(exc).__name__,
+                            "reason": str(exc),
+                        },
+                    )
+                    continue
 
                 if result.duplicate:
                     summary.duplicate_count += 1
@@ -180,21 +193,39 @@ class DiscoveryService:
             self._record_metric(source, summary.run_id, source_stats)
             self._session.commit()
         except DiscoveryError as exc:
-            self._session.rollback()
-            summary.failed_sources_count += 1
-            source_stats.status = "failed"
-            source_stats.error = str(exc)
-            source_stats.latency_ms = round((time.monotonic() - source_started) * 1000, 2)
-            self._record_metric(source, summary.run_id, source_stats)
-            self._session.commit()
-            logger.exception(
-                "source_discovery_failed",
-                extra={
-                    "run_id": summary.run_id,
-                    "source_id": source.id,
-                    "error_type": type(exc).__name__,
-                },
-            )
+            self._handle_source_failure(source, summary, source_stats, source_started, exc)
+        except Exception as exc:
+            self._handle_source_failure(source, summary, source_stats, source_started, exc)
+
+    def _handle_source_failure(
+        self,
+        source: JobSourceConfig,
+        summary: _MutableDiscoverySummary,
+        stats: _SourceStats,
+        started: float,
+        exc: Exception,
+    ) -> None:
+        """Record a failed source run without interrupting other sources.
+
+        A failure in one provider is isolated to that source: the run-level
+        summary is updated, a metric record is persisted, and discovery
+        continues with the next configured source.
+        """
+        self._session.rollback()
+        summary.failed_sources_count += 1
+        stats.status = "failed"
+        stats.error = str(exc)
+        stats.latency_ms = round((time.monotonic() - started) * 1000, 2)
+        self._record_metric(source, summary.run_id, stats)
+        self._session.commit()
+        logger.exception(
+            "source_discovery_failed",
+            extra={
+                "run_id": summary.run_id,
+                "source_id": source.id,
+                "error_type": type(exc).__name__,
+            },
+        )
 
     def _record_metric(
         self,

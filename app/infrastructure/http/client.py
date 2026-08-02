@@ -64,15 +64,11 @@ class HttpClient:
         timeout: int | None = None,
     ) -> requests.Response:
         """Perform a GET request with retries and structured logging."""
-        logger.debug(
-            "http_get_started", extra={"url": url, "params": bool(params)}
-        )
+        logger.debug("http_get_started", extra={"url": url, "params": bool(params)})
         response = self._retrying_request(
             url, "get", headers=headers, params=params, timeout=timeout
         )
-        logger.debug(
-            "http_get_succeeded", extra={"url": url, "status_code": response.status_code}
-        )
+        logger.debug("http_get_succeeded", extra={"url": url, "status_code": response.status_code})
         return response
 
     def post(
@@ -86,9 +82,7 @@ class HttpClient:
         """Perform a POST request with retries and structured logging."""
         logger.debug("http_post_started", extra={"url": url})
         response = self._retrying_request(url, "post", json=json, headers=headers, timeout=timeout)
-        logger.debug(
-            "http_post_succeeded", extra={"url": url, "status_code": response.status_code}
-        )
+        logger.debug("http_post_succeeded", extra={"url": url, "status_code": response.status_code})
         return response
 
     def get_json(

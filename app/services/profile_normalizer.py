@@ -622,8 +622,7 @@ class ProfileNormalizer:
         current_section: str | None = None
         current_lines: list[str] = []
         compiled: dict[str, re.Pattern[str]] = {
-            name: self._compile_headers(keywords)
-            for name, keywords in self.SECTION_HEADERS.items()
+            name: self._compile_headers(keywords) for name, keywords in self.SECTION_HEADERS.items()
         }
 
         for line in lines:
@@ -653,8 +652,7 @@ class ProfileNormalizer:
     def _header_region(self, text: str) -> list[str]:
         """Return the non-empty lines that precede the first section heading."""
         compiled: dict[str, re.Pattern[str]] = {
-            name: self._compile_headers(keywords)
-            for name, keywords in self.SECTION_HEADERS.items()
+            name: self._compile_headers(keywords) for name, keywords in self.SECTION_HEADERS.items()
         }
         header: list[str] = []
         for line in text.split("\n"):
@@ -873,9 +871,7 @@ class ProfileNormalizer:
                 return kw.capitalize()
         return None
 
-    def _extract_summary(
-        self, text: str, sections: dict[str, str], name: str
-    ) -> str | None:
+    def _extract_summary(self, text: str, sections: dict[str, str], name: str) -> str | None:
         summary_text = sections.get("summary", "").strip()
         if len(summary_text) >= 15:
             return summary_text
@@ -915,9 +911,7 @@ class ProfileNormalizer:
         candidates: list[str] = []
         seen: set[str] = set()
         text = self.URL_RE.sub(" ", text)
-        text = " ".join(
-            raw for raw in self.BARE_URL_RE.split(text) if not is_plausible_url(raw)
-        )
+        text = " ".join(raw for raw in self.BARE_URL_RE.split(text) if not is_plausible_url(raw))
         for match in self.PHONE_RE.findall(text):
             candidate = match.strip()
             if not candidate or candidate in seen:
@@ -1377,7 +1371,7 @@ class ProfileNormalizer:
         level_token: str | None = None
         if m:
             level_token = m.group(1).strip()
-            text = (text[: m.start()] + text[m.end():]).strip()
+            text = (text[: m.start()] + text[m.end() :]).strip()
         level = self._map_language_level(level_token)
         if level is None:
             words = text.split()
@@ -1558,7 +1552,7 @@ class ProfileNormalizer:
                 title,
             )
             if author:
-                title = title[author.end():].lstrip(". ")
+                title = title[author.end() :].lstrip(". ")
         title = re.sub(r"\s*\(\s*(?:19|20)\d{2}\s*\)", " ", title)
         title = re.sub(r"\b(?:19|20)\d{2}\b", " ", title)
         title = re.sub(r"\s+", " ", title).strip(" .;")

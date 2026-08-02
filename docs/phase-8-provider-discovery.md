@@ -140,6 +140,44 @@ source.
 `DiscoveryService.run_source(source)` runs discovery for a single source and records
 the same metrics — used by `stagepilot sources refresh`.
 
+### Error isolation
+
+A failure in one provider never interrupts discovery for other sources. Per-job
+failures (normalization or ingestion errors) increment the invalid counter and skip
+that job; per-source failures (fetch or configuration errors) are isolated through
+`_handle_source_failure`, which rolls back the transaction, records a `failed`
+metric, and continues with the next configured source.
+
+## Connector Validation Framework
+
+`app/infrastructure/job_sources/validation.py` validates every existing connector
+against mocked real-world scenarios with no network access:
+
+- `NORMALIZED_JOB_SCHEMA` — the canonical 13-field `DiscoveredJob` contract every
+  connector must emit (`external_id`, `url`, `title`, `company`, `location`,
+  `description`, `raw_payload`, `discovered_at`, `posted_at`, `department`,
+  `employment_type`, `remote_status`, `requirements`).
+- `ConnectorValidator.validate_connector(connector, source=None)` rebuilds each
+  connector with a fake HTTP client and runs its scenario suite.
+- Per-provider scenario suites cover a happy path (with expected normalized fields),
+  empty responses, malformed payloads, transport errors, and missing config
+  (`validate` and `fetch` paths).
+- `ConnectorBenchmarkResult` reports: `success_rate`, `avg_latency_ms` /
+  `max_latency_ms`, `normalization_quality`, `duplicate_rate`, `error_handling`,
+  `unhandled_errors`, and an `overall_score` (0–100) with `healthy` / `degraded` /
+  `failed` status.
+- When a real `JobSourceConfig` is passed, its configuration is also validated and an
+  invalid config fails only that source.
+
+`app/services/source_validation_service.py` turns those results into a health report:
+
+- `SourceValidationService.benchmark_sources(source_configs)` — one
+  `SourceBenchmarkEntry` per configured source; falls back to benchmarking every
+  enabled provider when the list is empty.
+- `SourcesHealthReport` aggregates entries into overall status, healthy/degraded/
+  failed counts, and per-provider summaries. Everything is JSON-serializable via
+  `to_dict()`.
+
 ## CLI — Source Management
 
 ```text
@@ -160,11 +198,15 @@ stagepilot sources disable --id <id> | --name <name>
 stagepilot sources refresh --id <id>
 stagepilot sources health --id <id>
 stagepilot sources test --id <id>
+stagepilot sources benchmark
 ```
 
 - `refresh` fetches and ingests jobs from one source immediately.
 - `health` runs a connectivity check and reports status + latency.
 - `test` validates the source configuration and dry-runs a fetch (no persistence).
+- `benchmark` runs the connector validation benchmark across all configured sources
+  and prints a JSON health report (success rate, response time, normalization
+  quality, duplicate rate, error handling, overall status).
 
 ## Repository
 
@@ -188,7 +230,11 @@ Key coverage:
 - `test_registry_builder.py` — auto-registration and disabled providers
 - `test_job_source_repository.py` — generic source operations
 - `test_sources_cli.py` — source management CLI commands
+- `test_connector_validation.py` — validation framework: every provider healthy,
+  schema conformance, metrics, error handling, invalid-config failures
 - `test_multi_provider_discovery.py` (integration) — multi-provider ingestion + cross-provider dedupe
+- `test_provider_validation.py` (integration) — provider error isolation,
+  benchmark reports, invalid-source failures
 
 ## Adding a New Provider
 
@@ -197,4 +243,6 @@ Key coverage:
 3. Register the class in `_ALL_CONNECTORS` in `registry.py`.
 4. Add a `[providers.<name>]` section in `providers.toml` and the `enabled` list.
 5. Add a `sources add-<name>` CLI subcommand (optional).
-6. Add tests mirroring `test_provider_connectors.py`.
+6. Add a scenario suite in `_PROVIDER_SCENARIOS` in `validation.py` so the connector
+   is covered by `stagepilot sources benchmark`.
+7. Add tests mirroring `test_provider_connectors.py`.

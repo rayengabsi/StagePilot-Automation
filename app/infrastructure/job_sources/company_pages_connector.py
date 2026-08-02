@@ -99,9 +99,7 @@ class CompanyPagesConnector(BaseJobSourceConnector):
         link = css_select_first(soup, str(selector))
         return extract_href(link, page_url)
 
-    def _scrape_detail(
-        self, url: str, source: JobSourceConfig
-    ) -> dict[str, Any] | None:
+    def _scrape_detail(self, url: str, source: JobSourceConfig) -> dict[str, Any] | None:
         """Fetch a job detail page and extract title/description."""
         self._rate_limiter.wait()
         html = self._http.get_text(url)
@@ -110,9 +108,7 @@ class CompanyPagesConnector(BaseJobSourceConnector):
         title_element = css_select_first(soup, str(source.config.get("title_selector")))
         title = extract_text(title_element)
 
-        description_element = css_select_first(
-            soup, str(source.config.get("description_selector"))
-        )
+        description_element = css_select_first(soup, str(source.config.get("description_selector")))
         description = extract_text(description_element)
         if not description:
             description = self._json_ld_description(soup)
@@ -147,9 +143,7 @@ class CompanyPagesConnector(BaseJobSourceConnector):
                     return clean_text(str(description))
         return None
 
-    def normalize(
-        self, raw: dict[str, Any], source: JobSourceConfig
-    ) -> DiscoveredJob | None:
+    def normalize(self, raw: dict[str, Any], source: JobSourceConfig) -> DiscoveredJob | None:
         """Convert a scraped job record into a discovered job."""
         title = clean_text(raw.get("title"))
         url = clean_text(raw.get("url"))

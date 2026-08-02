@@ -84,3 +84,7 @@ class ConnectorRegistry:
         if connector is None:
             raise ConnectorNotFoundError(f"No connector registered for source type: {source_type}")
         return connector
+
+    def all(self) -> list[JobSourceConnector]:
+        """Return every connector registered in the registry."""
+        return list(self._connectors.values())

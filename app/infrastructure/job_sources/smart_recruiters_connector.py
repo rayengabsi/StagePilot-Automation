@@ -55,9 +55,7 @@ class SmartRecruitersConnector(BaseJobSourceConnector):
         next_cursor = cursor + _PAGE_SIZE if content and cursor + _PAGE_SIZE < total_found else None
         return PageResult(items=content, next_cursor=next_cursor)
 
-    def normalize(
-        self, raw: dict[str, Any], source: JobSourceConfig
-    ) -> DiscoveredJob | None:
+    def normalize(self, raw: dict[str, Any], source: JobSourceConfig) -> DiscoveredJob | None:
         """Convert a SmartRecruiters posting into a discovered job."""
         title = clean_text(raw.get("name"))
         url = clean_text(raw.get("ref"))

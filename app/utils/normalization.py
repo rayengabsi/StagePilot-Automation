@@ -159,16 +159,116 @@ def normalize_url(raw: str) -> str | None:
 # for bare URLs while still accepting domains such as ``myportfolio.io``.
 KNOWN_TLDS = frozenset(
     {
-        "com", "net", "org", "edu", "gov", "mil", "int", "ac", "biz", "info",
-        "io", "co", "ai", "app", "dev", "me", "tech", "xyz", "online", "site",
-        "web", "cloud", "team", "world", "media", "blog", "space", "live",
-        "eu", "fr", "de", "uk", "us", "ca", "au", "nz", "in", "jp", "cn", "kr",
-        "br", "mx", "ar", "cl", "ru", "ch", "se", "no", "fi", "nl", "be", "at",
-        "it", "es", "pt", "pl", "ie", "dk", "cz", "gr", "hu", "ro", "bg", "hr",
-        "si", "sk", "lt", "lv", "ee", "is", "lu", "mt", "tr", "il", "ae", "sa",
-        "qa", "eg", "ma", "tn", "za", "ng", "ke", "gh", "sg", "my", "th", "id",
-        "ph", "vn", "pk", "bd", "lk", "np", "ly", "to", "tv", "fm", "gg", "je",
-        "im", "so", "sh", "cc", "ws", "la", "li", "md", "mc", "cy",
+        "com",
+        "net",
+        "org",
+        "edu",
+        "gov",
+        "mil",
+        "int",
+        "ac",
+        "biz",
+        "info",
+        "io",
+        "co",
+        "ai",
+        "app",
+        "dev",
+        "me",
+        "tech",
+        "xyz",
+        "online",
+        "site",
+        "web",
+        "cloud",
+        "team",
+        "world",
+        "media",
+        "blog",
+        "space",
+        "live",
+        "eu",
+        "fr",
+        "de",
+        "uk",
+        "us",
+        "ca",
+        "au",
+        "nz",
+        "in",
+        "jp",
+        "cn",
+        "kr",
+        "br",
+        "mx",
+        "ar",
+        "cl",
+        "ru",
+        "ch",
+        "se",
+        "no",
+        "fi",
+        "nl",
+        "be",
+        "at",
+        "it",
+        "es",
+        "pt",
+        "pl",
+        "ie",
+        "dk",
+        "cz",
+        "gr",
+        "hu",
+        "ro",
+        "bg",
+        "hr",
+        "si",
+        "sk",
+        "lt",
+        "lv",
+        "ee",
+        "is",
+        "lu",
+        "mt",
+        "tr",
+        "il",
+        "ae",
+        "sa",
+        "qa",
+        "eg",
+        "ma",
+        "tn",
+        "za",
+        "ng",
+        "ke",
+        "gh",
+        "sg",
+        "my",
+        "th",
+        "id",
+        "ph",
+        "vn",
+        "pk",
+        "bd",
+        "lk",
+        "np",
+        "ly",
+        "to",
+        "tv",
+        "fm",
+        "gg",
+        "je",
+        "im",
+        "so",
+        "sh",
+        "cc",
+        "ws",
+        "la",
+        "li",
+        "md",
+        "mc",
+        "cy",
     }
 )
 
@@ -282,9 +382,7 @@ ROLE_KEYWORDS = (
 )
 
 ROLE_KEYWORDS_PATTERN = re.compile(
-    r"\b(?:"
-    + "|".join(re.escape(k) for k in ROLE_KEYWORDS)
-    + r")\b",
+    r"\b(?:" + "|".join(re.escape(k) for k in ROLE_KEYWORDS) + r")\b",
     re.IGNORECASE,
 )
 
@@ -308,38 +406,38 @@ EMPLOYMENT_TYPES = (
 )
 
 EMPLOYMENT_TYPE_PATTERN = re.compile(
-    r"^(?:\b(?:"
-    + "|".join(re.escape(k) for k in EMPLOYMENT_TYPES)
-    + r")\b)",
+    r"^(?:\b(?:" + "|".join(re.escape(k) for k in EMPLOYMENT_TYPES) + r")\b)",
     re.IGNORECASE,
 )
 
 WORK_MODES = ("remote", "hybrid", "on-site", "onsite", "in-office", "in office")
 
 WORK_MODE_PATTERN = re.compile(
-    r"^(?:\b(?:"
-    + "|".join(re.escape(k) for k in WORK_MODES)
-    + r")\b)",
+    r"^(?:\b(?:" + "|".join(re.escape(k) for k in WORK_MODES) + r")\b)",
     re.IGNORECASE,
 )
 
 
 def is_employment_type(value: str) -> bool:
     """Return True when a line is only an employment type."""
-    return bool(re.fullmatch(
-        r"(?:\b(?:" + "|".join(re.escape(k) for k in EMPLOYMENT_TYPES) + r")\b)",
-        value.strip(),
-        re.IGNORECASE,
-    ))
+    return bool(
+        re.fullmatch(
+            r"(?:\b(?:" + "|".join(re.escape(k) for k in EMPLOYMENT_TYPES) + r")\b)",
+            value.strip(),
+            re.IGNORECASE,
+        )
+    )
 
 
 def is_work_mode(value: str) -> bool:
     """Return True when a line is only a work mode (remote/hybrid/onsite)."""
-    return bool(re.fullmatch(
-        r"(?:\b(?:" + "|".join(re.escape(k) for k in WORK_MODES) + r")\b)",
-        value.strip(),
-        re.IGNORECASE,
-    ))
+    return bool(
+        re.fullmatch(
+            r"(?:\b(?:" + "|".join(re.escape(k) for k in WORK_MODES) + r")\b)",
+            value.strip(),
+            re.IGNORECASE,
+        )
+    )
 
 
 # Degree level keywords ordered so more specific terms are checked first.

@@ -45,9 +45,7 @@ class RssFeedConnector(BaseJobSourceConnector):
             return self._parse_atom_items(source, root)
         raise SourceParseError(f"Unsupported feed format for source '{source.name}'.")
 
-    def _parse_rss_items(
-        self, source: JobSourceConfig, root: ET.Element
-    ) -> list[dict[str, Any]]:
+    def _parse_rss_items(self, source: JobSourceConfig, root: ET.Element) -> list[dict[str, Any]]:
         """Parse RSS 2.0 feed items into raw dictionaries."""
         items: list[dict[str, Any]] = []
         for item in root.findall("./channel/item"):
@@ -56,9 +54,7 @@ class RssFeedConnector(BaseJobSourceConnector):
                 items.append(raw)
         return items
 
-    def _parse_atom_items(
-        self, source: JobSourceConfig, root: ET.Element
-    ) -> list[dict[str, Any]]:
+    def _parse_atom_items(self, source: JobSourceConfig, root: ET.Element) -> list[dict[str, Any]]:
         """Parse Atom feed entries into raw dictionaries."""
         items: list[dict[str, Any]] = []
         entries = [child for child in root if self._strip_namespace(child.tag) == "entry"]
@@ -68,9 +64,7 @@ class RssFeedConnector(BaseJobSourceConnector):
                 items.append(raw)
         return items
 
-    def _rss_item_to_raw(
-        self, source: JobSourceConfig, item: ET.Element
-    ) -> dict[str, Any] | None:
+    def _rss_item_to_raw(self, source: JobSourceConfig, item: ET.Element) -> dict[str, Any] | None:
         """Convert one RSS item into a raw dictionary."""
         title = self._child_text(item, "title")
         link = self._child_text(item, "link")

@@ -543,7 +543,24 @@ Career Pages (CSS-selector based scraping with JSON-LD fallback).
 
 `build_connector_registry(settings)` auto-registers every enabled provider. The CLI
 (`discover`) and `PipelineOrchestrator._run_discovery()` both use it, so new providers
-are picked up automatically.
+are picked up automatically. `ConnectorRegistry.all()` exposes every registered
+connector for validation/benchmarking.
+
+### Provider Validation
+
+`app/infrastructure/job_sources/validation.py` validates every connector against
+mocked scenarios with no network access, measuring success rate, response time,
+normalization quality, duplicate rate, and error handling against the canonical
+`NORMALIZED_JOB_SCHEMA`. `SourceValidationService` aggregates the results into a
+JSON-serializable `SourcesHealthReport` (see
+[`docs/phase-8-provider-discovery.md`](docs/phase-8-provider-discovery.md)).
+
+### Error Isolation
+
+Discovery isolates failures per source: per-job failures skip the job and increment
+the invalid counter, while per-source failures roll back and record a `failed`
+metric before continuing with the next configured source. A provider outage never
+interrupts discovery for other sources.
 
 ### Persistence
 
@@ -557,5 +574,5 @@ are picked up automatically.
 stagepilot sources add-rss | add-greenhouse | add-lever | add-ashby |
            add-smartrecruiters | add-teamtailor | add-wttj | add-remoteok |
            add-wellfound | add-company
-stagepilot sources list | remove | enable | disable | refresh | health | test
+stagepilot sources list | remove | enable | disable | refresh | health | test | benchmark
 ```

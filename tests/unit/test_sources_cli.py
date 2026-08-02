@@ -236,6 +236,80 @@ def test_build_company_config_defaults() -> None:
     assert config["company"] == "Acme"
 
 
+@patch("app.cli.commands.create_database_engine")
+@patch("app.cli.commands.create_session_factory")
+@patch("app.cli.commands.session_scope")
+@patch("app.cli.commands.JobSourceRepository")
+@patch("app.cli.commands.build_connector_registry")
+@patch("app.cli.commands.SourceValidationService")
+def test_sources_benchmark_builds_report_from_sources(
+    mock_svc_cls: MagicMock,
+    mock_registry: MagicMock,
+    mock_repo_cls: MagicMock,
+    mock_scope: MagicMock,
+    mock_factory: MagicMock,
+    mock_engine: MagicMock,
+) -> None:
+    """Sources benchmark should validate every configured source."""
+    mock_repo = MagicMock()
+    record = MagicMock()
+    record.id = 1
+    record.name = "Acme"
+    record.type = "greenhouse"
+    record.base_url = "https://boards.greenhouse.io/acme"
+    record.config_json = {"token": "acme"}
+    mock_repo.list_sources.return_value = [record]
+    mock_repo_cls.return_value = mock_repo
+    mock_scope.return_value.__enter__.return_value = MagicMock()
+
+    mock_report = MagicMock()
+    mock_report.to_dict.return_value = {"overall_status": "healthy"}
+    mock_svc = MagicMock()
+    mock_svc.benchmark_sources.return_value = mock_report
+    mock_svc_cls.return_value = mock_svc
+
+    exit_code = run_cli(["sources", "benchmark"])
+
+    assert exit_code == 0
+    mock_svc.benchmark_sources.assert_called_once()
+    source_configs = mock_svc.benchmark_sources.call_args[0][0]
+    assert len(source_configs) == 1
+    assert source_configs[0].name == "Acme"
+    assert source_configs[0].type == JobSourceType.GREENHOUSE
+
+
+@patch("app.cli.commands.create_database_engine")
+@patch("app.cli.commands.create_session_factory")
+@patch("app.cli.commands.session_scope")
+@patch("app.cli.commands.JobSourceRepository")
+@patch("app.cli.commands.build_connector_registry")
+@patch("app.cli.commands.SourceValidationService")
+def test_sources_benchmark_with_no_sources_uses_provider_fallback(
+    mock_svc_cls: MagicMock,
+    mock_registry: MagicMock,
+    mock_repo_cls: MagicMock,
+    mock_scope: MagicMock,
+    mock_factory: MagicMock,
+    mock_engine: MagicMock,
+) -> None:
+    """With no configured sources the report should cover all providers."""
+    mock_repo = MagicMock()
+    mock_repo.list_sources.return_value = []
+    mock_repo_cls.return_value = mock_repo
+    mock_scope.return_value.__enter__.return_value = MagicMock()
+
+    mock_report = MagicMock()
+    mock_report.to_dict.return_value = {"overall_status": "healthy"}
+    mock_svc = MagicMock()
+    mock_svc.benchmark_sources.return_value = mock_report
+    mock_svc_cls.return_value = mock_svc
+
+    exit_code = run_cli(["sources", "benchmark"])
+
+    assert exit_code == 0
+    mock_svc.benchmark_sources.assert_called_once_with([])
+
+
 def test_handle_add_provider_source_rejects_unknown_provider() -> None:
     """Unknown provider names should raise KeyError."""
     import pytest

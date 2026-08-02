@@ -35,7 +35,10 @@ Nationality: American
 
 def test_extracts_linkedin_labeled_and_bare() -> None:
     cases = [
-        ("LinkedIn: https://www.linkedin.com/in/janesmith", "https://www.linkedin.com/in/janesmith"),
+        (
+            "LinkedIn: https://www.linkedin.com/in/janesmith",
+            "https://www.linkedin.com/in/janesmith",
+        ),
         ("linkedin.com/in/janesmith", "https://linkedin.com/in/janesmith"),
         ("LinkedIn: linkedin.com/in/janesmith", "https://linkedin.com/in/janesmith"),
         ("https://linkedin.com/in/janesmith/", "https://linkedin.com/in/janesmith"),

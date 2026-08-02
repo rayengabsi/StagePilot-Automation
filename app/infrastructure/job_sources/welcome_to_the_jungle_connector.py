@@ -25,8 +25,7 @@ class WelcomeToTheJungleConnector(BaseJobSourceConnector):
         errors = super().validate(source)
         if not self._org_slug(source):
             errors.append(
-                "welcome_to_the_jungle organization slug is required "
-                "(config.slug or base_url path)"
+                "welcome_to_the_jungle organization slug is required (config.slug or base_url path)"
             )
         return errors
 
@@ -70,9 +69,7 @@ class WelcomeToTheJungleConnector(BaseJobSourceConnector):
         next_cursor = cursor + 1 if len(items) >= _PAGE_SIZE else None
         return PageResult(items=items, next_cursor=next_cursor)
 
-    def normalize(
-        self, raw: dict[str, Any], source: JobSourceConfig
-    ) -> DiscoveredJob | None:
+    def normalize(self, raw: dict[str, Any], source: JobSourceConfig) -> DiscoveredJob | None:
         """Convert a WelcomeKit job payload into a discovered job."""
         title = clean_text(raw.get("title"))
         url = clean_text(raw.get("url") or raw.get("jobUrl"))
@@ -80,9 +77,7 @@ class WelcomeToTheJungleConnector(BaseJobSourceConnector):
             return None
 
         location = self._location_name(raw.get("location"))
-        description = clean_text(raw.get("description")) or strip_html(
-            raw.get("description_html")
-        )
+        description = clean_text(raw.get("description")) or strip_html(raw.get("description_html"))
         contract_type = raw.get("contract_type") or {}
         employment_type = (
             clean_text(contract_type.get("text") or contract_type.get("label"))

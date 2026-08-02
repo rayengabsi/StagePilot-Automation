@@ -55,9 +55,7 @@ class LeverConnector(BaseJobSourceConnector):
         next_cursor = cursor + _PAGE_SIZE if len(data) >= _PAGE_SIZE else None
         return PageResult(items=data, next_cursor=next_cursor)
 
-    def normalize(
-        self, raw: dict[str, Any], source: JobSourceConfig
-    ) -> DiscoveredJob | None:
+    def normalize(self, raw: dict[str, Any], source: JobSourceConfig) -> DiscoveredJob | None:
         """Convert a Lever posting payload into a discovered job."""
         title = clean_text(raw.get("text"))
         url = clean_text(raw.get("hostedUrl"))

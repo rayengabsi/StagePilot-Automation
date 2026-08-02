@@ -99,9 +99,7 @@ def test_fetch_drops_none_normalizations() -> None:
     """Items that normalize to None should be skipped."""
 
     class _PartialConnector(_EchoConnector):
-        def normalize(
-            self, raw: dict[str, Any], source: JobSourceConfig
-        ) -> DiscoveredJob | None:
+        def normalize(self, raw: dict[str, Any], source: JobSourceConfig) -> DiscoveredJob | None:
             """Return None for one of the two items."""
             if raw["id"] == "skip":
                 return None

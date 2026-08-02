@@ -57,9 +57,7 @@ class AshbyConnector(BaseJobSourceConnector):
         next_cursor = data.get("nextCursor") if data.get("hasMore") else None
         return PageResult(items=jobs, next_cursor=next_cursor)
 
-    def normalize(
-        self, raw: dict[str, Any], source: JobSourceConfig
-    ) -> DiscoveredJob | None:
+    def normalize(self, raw: dict[str, Any], source: JobSourceConfig) -> DiscoveredJob | None:
         """Convert an Ashby job payload into a discovered job."""
         title = clean_text(raw.get("title"))
         url = clean_text(raw.get("jobUrl"))

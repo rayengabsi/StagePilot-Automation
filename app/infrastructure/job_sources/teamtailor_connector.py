@@ -65,9 +65,7 @@ class TeamtailorConnector(BaseJobSourceConnector):
             next_cursor=next_cursor,
         )
 
-    def normalize(
-        self, raw: dict[str, Any], source: JobSourceConfig
-    ) -> DiscoveredJob | None:
+    def normalize(self, raw: dict[str, Any], source: JobSourceConfig) -> DiscoveredJob | None:
         """Convert a Teamtailor job payload into a discovered job."""
         if not isinstance(raw, _EnrichedJob):
             raw = _EnrichedJob(raw, [])
