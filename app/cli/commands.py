@@ -161,6 +161,40 @@ def _build_parser() -> argparse.ArgumentParser:
         )
     )
 
+    add_linkedin_mcp = sources_subparsers.add_parser(
+        "add-linkedin-mcp", help="Add a LinkedIn MCP server as the job source."
+    )
+    add_linkedin_mcp.add_argument("--name", required=True, help="Unique source name.")
+    add_linkedin_mcp.add_argument(
+        "--command", required=True, help="Executable that starts the MCP server."
+    )
+    add_linkedin_mcp.add_argument(
+        "--args", type=str, default=None, help="Server args (JSON list or shell string)."
+    )
+    add_linkedin_mcp.add_argument(
+        "--env", type=str, default=None, help="Server env overrides as a JSON object."
+    )
+    add_linkedin_mcp.add_argument("--cwd", type=str, default=None, help="Server working directory.")
+    add_linkedin_mcp.add_argument(
+        "--tool", type=str, default="search_jobs", help="MCP tool name to call."
+    )
+    add_linkedin_mcp.add_argument(
+        "--keywords", type=str, default=None, help="Search keywords for the LinkedIn query."
+    )
+    add_linkedin_mcp.add_argument(
+        "--location", type=str, default=None, help="Location filter for the search."
+    )
+    add_linkedin_mcp.add_argument(
+        "--job-type", type=str, default=None, help="Employment type filter (e.g. INTERNSHIP)."
+    )
+    add_linkedin_mcp.add_argument(
+        "--limit", type=int, default=None, help="Maximum number of results per search."
+    )
+    add_linkedin_mcp.add_argument(
+        "--timeout", type=int, default=None, help="Per-call timeout in seconds."
+    )
+    add_linkedin_mcp.set_defaults(handler=_handle_add_linkedin_mcp_source)
+
     remove_parser = sources_subparsers.add_parser("remove", help="Remove a job source.")
     remove_parser.add_argument("--id", type=int, default=None, help="Source ID to remove.")
     remove_parser.add_argument("--name", type=str, default=None, help="Source name to remove.")
@@ -1077,6 +1111,57 @@ def _handle_add_provider_source(
         }
     print(json.dumps(payload, sort_keys=True))
     return 0
+
+
+def _handle_add_linkedin_mcp_source(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle adding a LinkedIn MCP server as a job source."""
+    config: dict[str, object] = {"tool_name": args.tool}
+    if args.args:
+        config["server_args"] = _parse_mcp_args_value(args.args)
+    if args.env:
+        config["server_env"] = json.loads(args.env)
+    if args.cwd:
+        config["server_cwd"] = args.cwd
+    if args.keywords:
+        config["keywords"] = args.keywords
+    if args.location:
+        config["location"] = args.location
+    if args.job_type:
+        config["job_type"] = args.job_type
+    if args.limit is not None:
+        config["limit"] = args.limit
+    if args.timeout is not None:
+        config["timeout_seconds"] = args.timeout
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        from app.domain.jobs.enums import JobSourceType
+
+        source = JobSourceRepository(session).add_source(
+            name=args.name,
+            source_type=JobSourceType.LINKEDIN_MCP,
+            base_url=args.command,
+            config=config,
+        )
+        payload = {
+            "id": source.id,
+            "name": source.name,
+            "type": source.type,
+            "base_url": source.base_url,
+            "config": source.config_json,
+        }
+    print(json.dumps(payload, sort_keys=True))
+    return 0
+
+
+def _parse_mcp_args_value(value: str) -> list[str] | str:
+    """Parse the MCP --args value as a JSON list or pass it through."""
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, list) else value
+    except (ValueError, TypeError):
+        return value
 
 
 def _resolve_source_id(args: argparse.Namespace, repo: JobSourceRepository) -> int | None:

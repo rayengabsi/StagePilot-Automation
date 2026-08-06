@@ -16,3 +16,4 @@ class JobSourceType(StrEnum):
     REMOTE_OK = "remote_ok"
     WELLFOUND = "wellfound"
     COMPANY_PAGES = "company_pages"
+    LINKEDIN_MCP = "linkedin_mcp"

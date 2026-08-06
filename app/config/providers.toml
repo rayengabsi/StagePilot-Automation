@@ -109,3 +109,14 @@ retry_attempts = 2
 min_interval_seconds = 1.0
 rate_limit_per_minute = 10
 base_headers = {}
+
+# LinkedIn MCP is opt-in: it runs a separate MCP server process rather than
+# plain HTTP, so the offline connector benchmark does not cover it. Add
+# "linkedin_mcp" to the providers.enabled list to activate it.
+[providers.linkedin_mcp]
+enabled = false
+timeout_seconds = 30
+retry_attempts = 1
+min_interval_seconds = 1.0
+rate_limit_per_minute = 10
+base_headers = {}

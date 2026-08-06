@@ -12,6 +12,7 @@ from app.infrastructure.job_sources.base import BaseJobSourceConnector
 from app.infrastructure.job_sources.company_pages_connector import CompanyPagesConnector
 from app.infrastructure.job_sources.greenhouse_connector import GreenhouseConnector
 from app.infrastructure.job_sources.lever_connector import LeverConnector
+from app.infrastructure.job_sources.linkedin_mcp_connector import LinkedInMCPConnector
 from app.infrastructure.job_sources.remote_ok_connector import RemoteOkConnector
 from app.infrastructure.job_sources.rss_feed_connector import RssFeedConnector
 from app.infrastructure.job_sources.smart_recruiters_connector import SmartRecruitersConnector
@@ -42,6 +43,7 @@ _ALL_CONNECTORS: tuple[type[BaseJobSourceConnector], ...] = (
     RemoteOkConnector,
     WellfoundConnector,
     CompanyPagesConnector,
+    LinkedInMCPConnector,
 )
 
 
