@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import shlex
 import time
-from typing import Any, ClassVar
+from collections.abc import Callable
+from functools import partial
+from typing import Any, ClassVar, TypeVar
 
 from app.config.linkedin_mcp_config import LinkedInMCPConfig, get_linkedin_mcp_config
 from app.domain.jobs.entities import DiscoveredJob, JobSourceConfig, ProviderHealth
@@ -30,6 +32,8 @@ from app.infrastructure.job_sources.base import BaseJobSourceConnector, PageResu
 from app.infrastructure.linkedin_mcp.client import LinkedInMCPClient, LinkedInMCPError
 from app.infrastructure.linkedin_mcp.job_parser import ParsedLinkedInJob, parse_linkedin_job_posting
 from app.shared.time import utc_now
+
+T = TypeVar("T")
 
 _DEFAULT_SEARCH_TOOL = "search_jobs"
 _DEFAULT_DETAIL_TOOL = "get_job_details"
@@ -61,29 +65,86 @@ class LinkedInMCPConnector(BaseJobSourceConnector):
     ) -> None:
         super().__init__(settings, config, http_client, rate_limiter)  # type: ignore[arg-type]
         self._server = mcp_config or get_linkedin_mcp_config()
+        self._retry_attempts = getattr(self._server, "retry_attempts", 3)
+        self._retry_delay_seconds = getattr(self._server, "retry_delay_seconds", 2.0)
+        self._retry_backoff = getattr(self._server, "retry_backoff", 2.0)
 
     def fetch(self, source: JobSourceConfig) -> list[DiscoveredJob]:
         """Start the MCP server, search, fetch details, and normalize jobs."""
         client = self._build_client(source)
-        search_result = self._search(client, source)
+        search_result = self._with_retry(
+            lambda: self._search(client, source)
+        )
         job_ids = _extract_job_ids(search_result)
 
-        jobs: list[DiscoveredJob] = []
         if not job_ids:
-            return jobs
+            return []
 
         limit = self._server.max_jobs
         selected = job_ids[:limit]
         detail_tool = self._detail_tool(source)
-        detail_calls = [(detail_tool, {"job_id": job_id}) for job_id in selected]
-        responses = client.call_many(detail_calls)
+        return self._fetch_details(client, selected, detail_tool)
 
+    def _fetch_details(
+        self, client: LinkedInMCPClient, selected: list[str], detail_tool: str
+    ) -> list[DiscoveredJob]:
+        """Fetch job details with retries and per-job recovery.
+
+        Transient failures are retried; otherwise details are fetched one job
+        at a time so a single bad listing never sinks the whole fetch.
+        """
+        detail_calls = [(detail_tool, {"job_id": job_id}) for job_id in selected]
+        try:
+            responses = self._with_retry(lambda: client.call_many(detail_calls))
+        except LinkedInSessionExpiredError:
+            raise
+        except LinkedInMCPError:
+            # call_many is all-or-nothing: after it exhausts its retries we fall
+            # back to fetching each job individually so partial results survive.
+            return self._recover_details(client, selected, detail_tool)
+
+        jobs: list[DiscoveredJob] = []
         for response, job_id in zip(responses, selected, strict=True):
             parsed = _job_from_response(response, job_id)
-            if parsed is None:
-                continue
-            jobs.append(_to_discovered_job(parsed))
+            if parsed is not None:
+                jobs.append(_to_discovered_job(parsed))
         return jobs
+
+    def _recover_details(
+        self, client: LinkedInMCPClient, selected: list[str], detail_tool: str
+    ) -> list[DiscoveredJob]:
+        """Fetch details per-job, skipping (not failing on) any that error."""
+        jobs: list[DiscoveredJob] = []
+        for job_id in selected:
+            try:
+                response = self._with_retry(
+                    partial(client.call_tool, detail_tool, {"job_id": job_id}),
+                )
+            except (LinkedInMCPError, LinkedInSessionExpiredError):
+                continue
+            parsed = _job_from_response(response, job_id)
+            if parsed is not None:
+                jobs.append(_to_discovered_job(parsed))
+        return jobs
+
+    def _with_retry(self, operation: Callable[[], T]) -> T:
+        """Run ``operation``, retrying transient errors with exponential backoff.
+
+        An expired-session error is never retried. Returns the operation result
+        or re-raises a ``LinkedInMCPError`` once attempts are exhausted.
+        """
+        delay = self._retry_delay_seconds
+        for attempt in range(self._retry_attempts + 1):
+            try:
+                return operation()
+            except LinkedInSessionExpiredError:
+                raise
+            except LinkedInMCPError:
+                if attempt >= self._retry_attempts:
+                    raise
+                time.sleep(delay)
+                delay *= self._retry_backoff
+        raise LinkedInMCPError("LinkedIn MCP retry policy exhausted")
 
     def validate(self, source: JobSourceConfig) -> list[str]:
         """Validate that an MCP server command is available for the source."""

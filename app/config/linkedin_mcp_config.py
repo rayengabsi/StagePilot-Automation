@@ -33,12 +33,16 @@ class LinkedInMCPConfig:
     state_file: Path
     max_matching_skills: int
     max_missing_skills: int
+    retry_attempts: int
+    retry_delay_seconds: float
+    retry_backoff: float
 
     @classmethod
     def load(cls, path: Path = LINKEDIN_MCP_CONFIG_PATH) -> LinkedInMCPConfig:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
         gateway = raw["gateway"]
         auth = gateway.get("auth", {})
+        retry = gateway.get("retry", {})
         notify = raw.get("notify", {})
         return cls(
             command=_resolve(gateway["command"]),
@@ -62,6 +66,9 @@ class LinkedInMCPConfig:
             state_file=Path(_resolve(notify.get("state_file", "data/linkedin/notified.json"))),
             max_matching_skills=int(notify.get("max_matching_skills", 5)),
             max_missing_skills=int(notify.get("max_missing_skills", 5)),
+            retry_attempts=int(retry.get("retry_attempts", 3)),
+            retry_delay_seconds=float(retry.get("retry_delay_seconds", 2.0)),
+            retry_backoff=float(retry.get("retry_backoff", 2.0)),
         )
 
     def base_arguments(self) -> list[str]:

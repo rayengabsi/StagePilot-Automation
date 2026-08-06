@@ -26,6 +26,14 @@ sort_by = "date"
 job_type = ""
 experience_level = ""
 
+[gateway.retry]
+# Recovery policy for transient MCP failures (server startup, tool-call
+# timeouts, and single-job detail errors). An expired-session error is never
+# retried because it is permanent until the user re-logs-in.
+retry_attempts = 3          # extra attempts after the initial try
+retry_delay_seconds = 2.0   # sleep before the first retry
+retry_backoff = 2.0         # multiplier applied to the delay after each retry
+
 [gateway.auth]
 # Substrings that, when present in a MCP error, mean the LinkedIn session
 # expired and the connector raises LinkedInSessionExpired so the caller can

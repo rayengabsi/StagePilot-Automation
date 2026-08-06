@@ -37,6 +37,9 @@ def _config(**overrides: object) -> LinkedInMCPConfig:
         "state_file": Path("data/linkedin/notified.json"),
         "max_matching_skills": 5,
         "max_missing_skills": 5,
+        "retry_attempts": 3,
+        "retry_delay_seconds": 2.0,
+        "retry_backoff": 2.0,
     }
     fields.update(overrides)
     return LinkedInMCPConfig(**fields)
