@@ -50,6 +50,7 @@ class LinkedInMCPRecommendationResult:
     job_id: int
     title: str
     company: str | None
+    location: str | None
     url: str
     final_score: float
     status: str
@@ -64,6 +65,7 @@ class LinkedInMCPRecommendationResult:
             "job_id": self.job_id,
             "title": self.title,
             "company": self.company,
+            "location": self.location,
             "url": self.url,
             "final_score": round(self.final_score, 2),
             "status": self.status,
@@ -205,6 +207,7 @@ class LinkedInMCPPipelineService:
         job = self._session.get(Job, rec.job_id)
         title = job.title if job else f"Job #{rec.job_id}"
         company = job.company if job else None
+        location = job.location if job else None
         url = job.url if job else ""
         above = rec.final_score >= cutoff
         explanation = self._explain(rec, title, company)
@@ -212,6 +215,7 @@ class LinkedInMCPPipelineService:
             job_id=rec.job_id,
             title=title,
             company=company,
+            location=location,
             url=url,
             final_score=rec.final_score,
             status=rec.status.value,

@@ -105,6 +105,40 @@ def format_approval_message(
     return format_recommendation_message(package, queue_position, max_length)
 
 
+def format_linked_match_message(
+    *,
+    title: str,
+    company: str | None,
+    location: str | None,
+    url: str,
+    final_score: float,
+    explanation: str,
+    max_length: int = 4096,
+) -> str:
+    """Format a single above-threshold LinkedIn match for Telegram delivery."""
+    lines = [
+        "🚀 *StagePilot Match*",
+        SEPARATOR,
+        "🏢 *Company:*",
+        _md(company or UNKNOWN),
+        "",
+        "💼 *Position:*",
+        _md(title or UNKNOWN),
+        "",
+        "📍 *Location:*",
+        _md(location or UNKNOWN),
+        "",
+        f"🎯 *Match Score:* {final_score:.1f}/100",
+        "",
+        "💡 *Why it matches:*",
+        _md(explanation or UNKNOWN),
+        "",
+        "🔗 *LinkedIn:*",
+        _md(url or UNKNOWN),
+    ]
+    return _truncate("\n".join(lines), max_length)
+
+
 def format_application_update_message(
     *,
     title: str,

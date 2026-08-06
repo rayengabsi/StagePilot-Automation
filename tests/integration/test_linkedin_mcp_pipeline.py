@@ -88,6 +88,8 @@ def test_linkedin_job_flows_through_matching_pipeline(db_session: Session) -> No
     assert rec.explanation
     assert "Software Engineer Intern" in rec.title
     assert "linkedin.com" in rec.url
+    assert rec.location
+    assert rec.to_dict()["location"] == rec.location
     assert result.cutoff == 30.0
     assert result.above_threshold + result.below_threshold == result.matched_total
     # Every result must be independently threshold-flagged.

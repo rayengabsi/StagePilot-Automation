@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from app.config.settings import get_settings
 from app.config.telegram_config import get_telegram_config
 from app.domain.approval.errors import TelegramError
-from app.infrastructure.telegram.messages import format_daily_summary_message
+from app.infrastructure.telegram.messages import (
+    format_daily_summary_message,
+    format_linked_match_message,
+)
+from app.services.linkedin_mcp_pipeline_service import LinkedInMCPRecommendationResult
 
 
 class TelegramNotificationService:
@@ -36,6 +42,31 @@ class TelegramNotificationService:
 
         text = format_daily_summary_message(queued=queue_count)
         self._broadcast(text)
+
+    def send_linkedin_matches(
+        self, recommendations: Sequence[LinkedInMCPRecommendationResult]
+    ) -> int:
+        """Send every above-threshold LinkedIn match to all allowed chats.
+
+        Returns the number of messages broadcast (matches above the cutoff).
+        """
+        if not self._config.bot_token:
+            msg = "Telegram bot token not configured"
+            raise TelegramError(msg)
+
+        above = [rec for rec in recommendations if rec.above_threshold]
+        for rec in above:
+            text = format_linked_match_message(
+                title=rec.title,
+                company=rec.company,
+                location=rec.location,
+                url=rec.url,
+                final_score=rec.final_score,
+                explanation=rec.explanation,
+                max_length=self._config.max_message_length,
+            )
+            self._broadcast(text)
+        return len(above)
 
     def _broadcast(self, text: str) -> None:
         """Send a message to all allowed chat IDs."""

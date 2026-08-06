@@ -616,6 +616,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     linkedin_match.set_defaults(handler=_handle_linkedin_match)
 
+    linkedin_notify = linkedin_subparsers.add_parser(
+        "notify",
+        help="Fetch + match LinkedIn jobs and send the matches to Telegram.",
+    )
+    linkedin_notify.add_argument(
+        "--top",
+        type=int,
+        default=None,
+        help="Limit the number of recommendations sent to Telegram.",
+    )
+    linkedin_notify.set_defaults(handler=_handle_linkedin_notify)
+
     telegram_parser = subparsers.add_parser("telegram", help="Telegram integration.")
     telegram_subparsers = telegram_parser.add_subparsers(dest="telegram_command")
 
@@ -1182,6 +1194,31 @@ def _handle_linkedin_match(args: argparse.Namespace, settings: Settings) -> int:
         result = service.run(top_n=args.top)
 
     print(json.dumps(result.to_dict(), sort_keys=True, default=str))
+    return 0
+
+
+def _handle_linkedin_notify(args: argparse.Namespace, settings: Settings) -> int:
+    """Fetch + match LinkedIn jobs, then deliver the above-threshold matches to Telegram."""
+    from app.infrastructure.telegram.notification import TelegramNotificationService
+    from app.services.linkedin_mcp_pipeline_service import LinkedInMCPPipelineService
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        service = LinkedInMCPPipelineService(session=session, settings=settings)
+        result = service.run(top_n=args.top)
+
+    notifier = TelegramNotificationService()
+    sent = notifier.send_linkedin_matches(result.recommendations)
+
+    payload = {
+        "source_id": result.source_id,
+        "fetched": result.fetched,
+        "matched_total": result.matched_total,
+        "above_threshold": result.above_threshold,
+        "telegram_sent": sent,
+    }
+    print(json.dumps(payload, sort_keys=True))
     return 0
 
 
