@@ -600,6 +600,22 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     agent_parser.set_defaults(handler=_handle_agent)
 
+    linkedin_parser = subparsers.add_parser(
+        "linkedin", help="LinkedIn MCP pipeline commands."
+    )
+    linkedin_subparsers = linkedin_parser.add_subparsers(dest="linkedin_command")
+
+    linkedin_match = linkedin_subparsers.add_parser(
+        "match", help="Fetch + match LinkedIn jobs through the existing pipeline."
+    )
+    linkedin_match.add_argument(
+        "--top",
+        type=int,
+        default=None,
+        help="Limit the number of recommendations returned.",
+    )
+    linkedin_match.set_defaults(handler=_handle_linkedin_match)
+
     telegram_parser = subparsers.add_parser("telegram", help="Telegram integration.")
     telegram_subparsers = telegram_parser.add_subparsers(dest="telegram_command")
 
@@ -1152,6 +1168,20 @@ def _handle_add_linkedin_mcp_source(args: argparse.Namespace, settings: Settings
             "config": source.config_json,
         }
     print(json.dumps(payload, sort_keys=True))
+    return 0
+
+
+def _handle_linkedin_match(args: argparse.Namespace, settings: Settings) -> int:
+    """Fetch and match LinkedIn MCP jobs through the existing pipeline."""
+    from app.services.linkedin_mcp_pipeline_service import LinkedInMCPPipelineService
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        service = LinkedInMCPPipelineService(session=session, settings=settings)
+        result = service.run(top_n=args.top)
+
+    print(json.dumps(result.to_dict(), sort_keys=True, default=str))
     return 0
 
 
