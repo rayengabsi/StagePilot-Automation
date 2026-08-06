@@ -656,6 +656,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     linkedin_login.set_defaults(handler=_handle_linkedin_login)
 
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Run environment and integration diagnostics.",
+    )
+    doctor_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output the full report as JSON.",
+    )
+    doctor_parser.set_defaults(handler=_handle_doctor)
+
     telegram_parser = subparsers.add_parser("telegram", help="Telegram integration.")
     telegram_subparsers = telegram_parser.add_subparsers(dest="telegram_command")
 
@@ -1223,6 +1234,27 @@ def _handle_linkedin_match(args: argparse.Namespace, settings: Settings) -> int:
 
     print(json.dumps(result.to_dict(), sort_keys=True, default=str))
     return 0
+
+
+def _handle_doctor(args: argparse.Namespace, settings: Settings) -> int:
+    """Run environment and integration diagnostics."""
+    from app.db.session import create_database_engine, create_session_factory
+    from app.infrastructure.diagnostics.doctor import run_doctor
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    report = run_doctor(session_factory=session_factory)
+    engine.dispose()
+
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2, sort_keys=True, default=str))
+    else:
+        for check in report.checks:
+            marker = "[ OK ]" if check.ok else "[FAIL]"
+            print(f"{marker} {check.name}: {check.message}")
+        print(f"python:   {report.python}")
+        print(f"platform: {report.platform}")
+    return 0 if report.all_ok else 1
 
 
 def _stage_logger(args: argparse.Namespace) -> LinkedInStageLogger:
