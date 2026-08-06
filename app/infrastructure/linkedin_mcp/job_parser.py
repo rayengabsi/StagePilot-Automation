@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+from app.shared.time import utc_now
 
 _DESCRIPTION_HEADERS = (
     "about the job",
@@ -103,6 +106,13 @@ class ParsedLinkedInJob:
     description: str | None
     requirements: str | None
     work_mode: str | None
+    salary: str | None = None
+    employment_type: str | None = None
+    experience_level: str | None = None
+    company_size: str | None = None
+    recruiter: str | None = None
+    posted_at: datetime | None = None
+    posted_age: str | None = None
 
     def to_payload(self) -> dict[str, str | None]:
         """Return a JSON-serializable representation for ``raw_payload``."""
@@ -115,13 +125,23 @@ class ParsedLinkedInJob:
             "description": self.description,
             "requirements": self.requirements,
             "work_mode": self.work_mode,
+            "salary": self.salary,
+            "employment_type": self.employment_type,
+            "experience_level": self.experience_level,
+            "company_size": self.company_size,
+            "recruiter": self.recruiter,
+            "posted_age": self.posted_age,
+            "posted_at": self.posted_at.isoformat() if self.posted_at else None,
         }
 
 
-def parse_linkedin_job_posting(text: str, job_id: str) -> ParsedLinkedInJob:
+def parse_linkedin_job_posting(
+    text: str, job_id: str, now: datetime | None = None
+) -> ParsedLinkedInJob:
     """Parse a raw LinkedIn job posting text block into structured fields."""
     url = f"https://www.linkedin.com/jobs/view/{job_id}/"
     lines = _clean_lines(text)
+    reference = now or utc_now()
 
     location: str | None = None
     title: str | None = None
@@ -156,6 +176,7 @@ def parse_linkedin_job_posting(text: str, job_id: str) -> ParsedLinkedInJob:
         if company is None and _looks_like_company(line):
             company = line
 
+    posted_at, posted_age = _parse_posted(lines, reference)
     return ParsedLinkedInJob(
         url=url,
         job_id=job_id,
@@ -165,6 +186,13 @@ def parse_linkedin_job_posting(text: str, job_id: str) -> ParsedLinkedInJob:
         description=_join(description_parts),
         requirements=_join(requirements_parts),
         work_mode=_detect_work_mode(lines),
+        salary=_parse_salary(lines),
+        employment_type=_parse_employment_type(lines),
+        experience_level=_parse_experience_level(lines),
+        company_size=_parse_company_size(lines),
+        recruiter=_parse_recruiter(lines),
+        posted_at=posted_at,
+        posted_age=posted_age,
     )
 
 
@@ -251,4 +279,138 @@ def _detect_work_mode(lines: list[str]) -> str | None:
             return "hybrid"
         if "on-site" in lowered or "on site" in lowered:
             return "on_site"
+    return None
+
+
+_SALARY_RE = re.compile(
+    r"(?:[$€£₹]\s*)?"
+    r"(?P<lo>\d[\d,\.]*\s?[kKM]?)"
+    r"\s*(?:to|-|\u2013|\u2014)\s*"
+    r"(?:[$€£₹]\s*)?"
+    r"(?P<hi>\d[\d,\.]*\s?[kKM]?)",
+    re.IGNORECASE,
+)
+
+_SALARY_WORD_RE = re.compile(
+    r"(salary|compensation|remuneration|annual|per year|per hour)",
+    re.IGNORECASE,
+)
+
+_EMPLOYMENT_TYPE_TOKENS = (
+    ("full-time", "Full-time"),
+    ("full time", "Full-time"),
+    ("part-time", "Part-time"),
+    ("part time", "Part-time"),
+    ("contract", "Contract"),
+    ("temporary", "Temporary"),
+    ("internship", "Internship"),
+    ("intern", "Internship"),
+)
+
+_EXPERIENCE_TOKENS = (
+    ("executive", "Executive"),
+    ("director", "Director"),
+    ("lead", "Lead"),
+    ("principal", "Principal"),
+    ("senior", "Senior"),
+    ("mid-senior", "Mid-Senior"),
+    ("mid senior", "Mid-Senior"),
+    ("associate", "Associate"),
+    ("entry level", "Entry Level"),
+    ("entry-level", "Entry Level"),
+    ("intern", "Intern"),
+    ("student", "Intern"),
+    ("junior", "Entry Level"),
+)
+
+_COMPANY_SIZE_RE = re.compile(
+    r"^\s*(?P<size>[\d\-,\.\s]+(?:employees|staff|people))\s*$",
+    re.IGNORECASE,
+)
+
+
+def _parse_salary(lines: list[str]) -> str | None:
+    """Return the first recognised salary line (range or single figure)."""
+    for line in lines:
+        if not _SALARY_WORD_RE.search(line):
+            continue
+        if _SALARY_RE.search(line):
+            return _clean(line)
+    return None
+
+
+def _parse_employment_type(lines: list[str]) -> str | None:
+    """Return a normalised employment type if one is advertised."""
+    for line in lines:
+        lowered = line.lower()
+        for token, label in _EMPLOYMENT_TYPE_TOKENS:
+            if token in lowered:
+                return label
+    return None
+
+
+def _parse_experience_level(lines: list[str]) -> str | None:
+    """Return a seniority label or a seniority string for years required."""
+    for line in lines:
+        lowered = line.lower()
+        for token, label in _EXPERIENCE_TOKENS:
+            if token in lowered:
+                return label
+    return None
+
+
+def _parse_company_size(lines: list[str]) -> str | None:
+    """Return the advertised company employee range, if present."""
+    for line in lines:
+        if _COMPANY_SIZE_RE.match(line):
+            return _clean(line)
+    return None
+
+
+def _parse_recruiter(lines: list[str]) -> str | None:
+    """Return the recruiter/contact name if a recruiter block is present."""
+    for index, line in enumerate(lines):
+        if "recruiter" not in line.lower():
+            continue
+        for candidate in (line, lines[index + 1]) if index + 1 < len(lines) else (line,):
+            stripped = _clean(candidate)
+            if not stripped or stripped.lower() == "recruiter":
+                continue
+            return stripped
+    return None
+
+
+def _parse_posted(lines: list[str], now: datetime) -> tuple[datetime | None, str | None]:
+    """Turn a relative posting-age text into an ISO date + the raw age text."""
+    for line in lines:
+        age = _match_age(line)
+        if age is None:
+            continue
+        return now - age, _clean(line)
+    return None, None
+
+
+def _match_age(line: str) -> timedelta | None:
+    """Convert a relative date phrase to a timedelta, or None."""
+    lowered = line.lower().strip()
+    if lowered in {"today", "just now", "recently", "posted today"}:
+        return timedelta(0)
+    if lowered.startswith("just posted") or lowered == "new":
+        return timedelta(0)
+
+    match = re.search(r"(\d+)\s*(hour|hr|h|day|d|week|w|month|mo|year|yr|y)\w*", lowered)
+    if not match:
+        return None
+    amount = int(match.group(1))
+    unit = match.group(2)
+    if unit in {"hour", "hr", "h"}:
+        return timedelta(hours=amount)
+    if unit in {"day", "d"}:
+        return timedelta(days=amount)
+    if unit in {"week", "w"}:
+        return timedelta(weeks=amount)
+    if unit in {"month", "mo"}:
+        return timedelta(days=amount * 30)
+    if unit in {"year", "yr", "y"}:
+        return timedelta(days=amount * 365)
     return None

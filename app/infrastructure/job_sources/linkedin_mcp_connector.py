@@ -303,7 +303,9 @@ def _to_discovered_job(parsed: ParsedLinkedInJob) -> DiscoveredJob:
         location=parsed.location,
         description=parsed.description,
         requirements=parsed.requirements,
+        employment_type=parsed.employment_type,
         remote_status=parsed.work_mode,
+        posted_at=parsed.posted_at,
         raw_payload=parsed.to_payload(),
         discovered_at=utc_now(),
     )
