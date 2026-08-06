@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import asdict
 from pathlib import Path
 
@@ -626,7 +627,24 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Limit the number of recommendations sent to Telegram.",
     )
+    linkedin_notify.add_argument(
+        "--no-login",
+        action="store_true",
+        help="Fail fast with login instructions instead of launching the login flow.",
+    )
     linkedin_notify.set_defaults(handler=_handle_linkedin_notify)
+
+    linkedin_status = linkedin_subparsers.add_parser(
+        "status",
+        help="Check whether a valid authenticated LinkedIn session exists.",
+    )
+    linkedin_status.set_defaults(handler=_handle_linkedin_status)
+
+    linkedin_login = linkedin_subparsers.add_parser(
+        "login",
+        help="Log in to LinkedIn once and persist the session for later runs.",
+    )
+    linkedin_login.set_defaults(handler=_handle_linkedin_login)
 
     telegram_parser = subparsers.add_parser("telegram", help="Telegram integration.")
     telegram_subparsers = telegram_parser.add_subparsers(dest="telegram_command")
@@ -1197,28 +1215,114 @@ def _handle_linkedin_match(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _handle_linkedin_status(_args: argparse.Namespace, _settings: Settings) -> int:
+    """Check the persisted LinkedIn session through the real server's --status."""
+    from app.config.linkedin_mcp_config import get_linkedin_mcp_config
+    from app.infrastructure.linkedin_mcp.auth import (
+        LinkedInAuthError,
+        LinkedInMCPAuthClient,
+    )
+
+    auth = LinkedInMCPAuthClient(get_linkedin_mcp_config())
+    try:
+        authenticated = auth.is_authenticated()
+    except LinkedInAuthError as exc:
+        print(json.dumps({"authenticated": False, "error": str(exc)}, sort_keys=True))
+        return 1
+
+    print(json.dumps({"authenticated": authenticated}, sort_keys=True))
+    if not authenticated:
+        print(
+            "No valid LinkedIn session found.\n"
+            "Run `stagepilot linkedin login` to authenticate once.",
+            file=sys.stderr,
+        )
+        return 2
+    return 0
+
+
+def _handle_linkedin_login(_args: argparse.Namespace, _settings: Settings) -> int:
+    """Run the one-time LinkedIn login flow and persist the browser session."""
+    from app.config.linkedin_mcp_config import get_linkedin_mcp_config
+    from app.infrastructure.linkedin_mcp.auth import (
+        LinkedInAuthError,
+        LinkedInMCPAuthClient,
+    )
+
+    config = get_linkedin_mcp_config()
+    auth = LinkedInMCPAuthClient(config)
+    print(
+        "🔑 Opening LinkedIn in your browser. Sign in there; the session is "
+        "saved automatically and reused on later runs."
+    )
+    try:
+        success = auth.login()
+    except LinkedInAuthError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    if success:
+        print(json.dumps({"authenticated": True}, sort_keys=True))
+        print("✅ LinkedIn session saved.")
+        return 0
+    print(json.dumps({"authenticated": False}, sort_keys=True))
+    print("❌ Login did not complete. Please try again.", file=sys.stderr)
+    return 2
+
+
 def _handle_linkedin_notify(args: argparse.Namespace, settings: Settings) -> int:
     """Fetch + match LinkedIn jobs, then deliver the above-threshold matches to Telegram."""
-    from app.infrastructure.telegram.notification import TelegramNotificationService
-    from app.services.linkedin_mcp_pipeline_service import LinkedInMCPPipelineService
+    from app.config.linkedin_mcp_config import get_linkedin_mcp_config
+    from app.infrastructure.linkedin_mcp.auth import (
+        LinkedInAuthError,
+        LinkedInMCPAuthClient,
+    )
+    from app.services.linkedin_notify_service import LinkedInNotifyService
+
+    auth = LinkedInMCPAuthClient(get_linkedin_mcp_config())
+    try:
+        authenticated = auth.is_authenticated()
+    except LinkedInAuthError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    if not authenticated:
+        if args.no_login:
+            print(
+                "No valid LinkedIn session found. Run `stagepilot linkedin login` "
+                "once, then retry.",
+                file=sys.stderr,
+            )
+            return 2
+        print(
+            "No valid LinkedIn session found. Opening the one-time login flow.",
+            file=sys.stderr,
+        )
+        try:
+            if not auth.login():
+                print(
+                    "❌ Login did not complete. Run `stagepilot linkedin login` "
+                    "and try again.",
+                    file=sys.stderr,
+                )
+                return 2
+        except LinkedInAuthError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
 
     engine = create_database_engine(settings)
     session_factory = create_session_factory(engine)
     with session_scope(session_factory) as session:
-        service = LinkedInMCPPipelineService(session=session, settings=settings)
+        service = LinkedInNotifyService(session=session, settings=settings)
         result = service.run(top_n=args.top)
 
-    notifier = TelegramNotificationService()
-    sent = notifier.send_linkedin_matches(result.recommendations)
-
-    payload = {
-        "source_id": result.source_id,
-        "fetched": result.fetched,
-        "matched_total": result.matched_total,
-        "above_threshold": result.above_threshold,
-        "telegram_sent": sent,
-    }
-    print(json.dumps(payload, sort_keys=True))
+    print(json.dumps(result.to_dict(), sort_keys=True))
+    if result.status == "auth_required":
+        print(result.message, file=sys.stderr)
+        return 2
+    if result.status == "error":
+        print(result.message, file=sys.stderr)
+        return 1
     return 0
 
 

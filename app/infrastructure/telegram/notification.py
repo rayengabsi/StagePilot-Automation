@@ -62,7 +62,9 @@ class TelegramNotificationService:
                 location=rec.location,
                 url=rec.url,
                 final_score=rec.final_score,
-                explanation=rec.explanation,
+                why=rec.explanation,
+                matched_skills=list(rec.matched_skills),
+                missing_skills=list(rec.missing_skills),
                 max_length=self._config.max_message_length,
             )
             self._broadcast(text)

@@ -112,30 +112,48 @@ def format_linked_match_message(
     location: str | None,
     url: str,
     final_score: float,
-    explanation: str,
+    why: str,
+    matched_skills: list[str] | tuple[str, ...] = (),
+    missing_skills: list[str] | tuple[str, ...] = (),
+    max_matching_skills: int = 5,
+    max_missing_skills: int = 5,
     max_length: int = 4096,
 ) -> str:
-    """Format a single above-threshold LinkedIn match for Telegram delivery."""
+    """Format a concise above-threshold LinkedIn match card for Telegram."""
     lines = [
-        "🚀 *StagePilot Match*",
+        "🚀 *New Career Match*",
         SEPARATOR,
-        "🏢 *Company:*",
+        "🏢 *Company*",
         _md(company or UNKNOWN),
         "",
-        "💼 *Position:*",
+        "💼 *Position*",
         _md(title or UNKNOWN),
         "",
-        "📍 *Location:*",
+        "📍 *Location*",
         _md(location or UNKNOWN),
         "",
-        f"🎯 *Match Score:* {final_score:.1f}/100",
+        "🎯 *Match*",
+        f"{final_score:.0f}%",
         "",
-        "💡 *Why it matches:*",
-        _md(explanation or UNKNOWN),
-        "",
-        "🔗 *LinkedIn:*",
-        _md(url or UNKNOWN),
     ]
+    if matched_skills:
+        lines.append("✅ *Matching Skills*")
+        lines.extend(_bullets(list(matched_skills)[:max_matching_skills], empty=UNKNOWN))
+        lines.append("")
+    if missing_skills:
+        lines.append("⚠️ *Missing Skills*")
+        lines.extend(_bullets(list(missing_skills)[:max_missing_skills], empty=UNKNOWN))
+        lines.append("")
+    lines.extend(
+        [
+            "💡 *Why this matches*",
+            "",
+            _md(why or UNKNOWN),
+            "",
+            "🔗 *Apply*",
+            _md(url or UNKNOWN),
+        ]
+    )
     return _truncate("\n".join(lines), max_length)
 
 

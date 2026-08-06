@@ -49,15 +49,38 @@ def test_format_linked_match_message_includes_all_fields() -> None:
         location="Tunis, Tunisia",
         url="https://www.linkedin.com/jobs/view/mock-101",
         final_score=41.0,
-        explanation="Matches your profile.",
+        why="Matches your profile.",
+        matched_skills=["Python", "Backend"],
+        missing_skills=["Go"],
     )
-    assert "StagePilot Match" in text
-    assert "Company:" in text and "Acme Tech" in text
-    assert "Position:" in text and "Software Engineer Intern (PFE)" in text
-    assert "Location:" in text and "Tunis, Tunisia" in text
-    assert "Match Score:" in text and "41.0/100" in text
-    assert "Why it matches:" in text and "Matches your profile." in text
-    assert "LinkedIn:" in text and "mock-101" in text
+    assert "New Career Match" in text
+    assert "Company" in text and "Acme Tech" in text
+    assert "Position" in text and "Software Engineer Intern (PFE)" in text
+    assert "Location" in text and "Tunis, Tunisia" in text
+    assert "Match" in text and "41%" in text
+    assert "Why this matches" in text and "Matches your profile." in text
+    assert "Apply" in text and "mock-101" in text
+    assert "Python" in text and "Backend" in text
+    assert "Go" in text
+
+
+def test_format_linked_match_message_caps_skill_lists() -> None:
+    text = format_linked_match_message(
+        title="X",
+        company="Y",
+        location="Z",
+        url="https://x",
+        final_score=50.0,
+        why="reason",
+        matched_skills=[f"s{i}" for i in range(20)],
+        missing_skills=[f"m{i}" for i in range(20)],
+        max_matching_skills=3,
+        max_missing_skills=2,
+    )
+    assert "s0" in text and "s2" in text
+    assert "s3" not in text
+    assert "m0" in text and "m1" in text
+    assert "m2" not in text
 
 
 def test_format_linked_match_message_defaults_missing_fields() -> None:
@@ -67,10 +90,10 @@ def test_format_linked_match_message_defaults_missing_fields() -> None:
         location=None,
         url="",
         final_score=12.5,
-        explanation="",
+        why="",
     )
     assert "Not specified" in text
-    assert "12.5/100" in text
+    assert "12%" in text
 
 
 def test_format_linked_match_message_respects_max_length() -> None:
@@ -80,7 +103,7 @@ def test_format_linked_match_message_respects_max_length() -> None:
         location="Tunis",
         url="https://x",
         final_score=50.0,
-        explanation="x",
+        why="x",
         max_length=120,
     )
     assert len(text) <= 120
@@ -107,7 +130,7 @@ def test_send_linkedin_matches_broadcasts_above_threshold(
 
     assert sent == 1
     assert len(sent_texts) == 1
-    assert "StagePilot Match" in sent_texts[0]
+    assert "New Career Match" in sent_texts[0]
 
 
 def test_send_linkedin_matches_requires_token(monkeypatch: pytest.MonkeyPatch) -> None:
