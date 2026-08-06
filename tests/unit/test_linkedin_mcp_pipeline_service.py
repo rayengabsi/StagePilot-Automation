@@ -86,10 +86,7 @@ def test_explain_default_builds_deterministic_narrative() -> None:
 
     text = service._explain(rec, "Software Engineer Intern (PFE)", "Acme Tech")
 
-    assert "Software Engineer Intern (PFE) at Acme Tech" in text
-    assert "41.0" in text
-    assert "Matched skills: Python." in text
-    assert "Missing skills: Java." in text
+    assert text == "Your experience with Python aligns strongly with this role."
 
 
 def test_explain_default_appends_insights_summary() -> None:
@@ -102,4 +99,4 @@ def test_explain_default_appends_insights_summary() -> None:
 
     text = service._explain(rec, "Title", "Company")
 
-    assert text.endswith("Insight summary text.")
+    assert text == "Insight summary text."

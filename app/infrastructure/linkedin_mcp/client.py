@@ -63,6 +63,32 @@ class LinkedInMCPClient:
         """Call an arbitrary server tool and return its parsed result."""
         return asyncio.run(self._call_tool(name, arguments))
 
+    def call_many(self, calls: list[tuple[str, dict[str, Any] | None]]) -> list[object]:
+        """Run several tool calls over one server session and return results.
+
+        A single process is started, initialized, and used for all calls in
+        the provided order, then torn down. This keeps the whole
+        search → details → shutdown lifecycle on one connection.
+        """
+        return asyncio.run(self._call_many(calls))
+
+    async def _call_many(self, calls: list[tuple[str, dict[str, Any] | None]]) -> list[object]:
+        """Open one session and invoke each call sequentially."""
+        try:
+            async with self._open_session() as session:
+                await session.initialize()
+                results: list[object] = []
+                for name, arguments in calls:
+                    result = await session.call_tool(
+                        name,
+                        arguments,
+                        read_timeout_seconds=self._timeout_seconds,
+                    )
+                    results.append(_parse_call_result(result))
+                return results
+        except Exception as exc:
+            raise LinkedInMCPError(f"LinkedIn MCP tool call failed: {exc}") from exc
+
     async def _list_tools(self) -> list[str]:
         """Open a session and list the available tool names."""
         try:

@@ -128,6 +128,7 @@ class LinkedInMCPPipelineService:
     def run(self, top_n: int | None = None) -> LinkedInMCPPipelineResult:
         """Fetch LinkedIn jobs, run matching, and return threshold-filtered results."""
         source = self._load_linkedin_source()
+        source = self._apply_profile_search(source)
         registry = ConnectorRegistry([LinkedInMCPConnector(self._settings)])
         discovery = self._build_discovery(registry)
         summary = discovery.run_source(source)
@@ -174,6 +175,28 @@ class LinkedInMCPPipelineService:
             type=JobSourceType(record.type),
             base_url=record.base_url,
             config=record.config_json,
+        )
+
+    def _apply_profile_search(self, source: JobSourceConfig) -> JobSourceConfig:
+        """Merge profile-derived search filters so LinkedIn is not searched blindly."""
+        from app.services.linkedin_query_builder import build_linkedin_search_query
+        from app.services.profile_service import ProfileService
+
+        try:
+            profile = ProfileService(
+                session=self._session, parser=None, normalizer=None, validator=None
+            ).get_current_profile()
+        except Exception:
+            return source
+        query = build_linkedin_search_query(profile)
+        merged = dict(source.config)
+        merged.update(query.to_config())
+        return JobSourceConfig(
+            id=source.id,
+            name=source.name,
+            type=source.type,
+            base_url=source.base_url,
+            config=merged,
         )
 
     def _build_discovery(self, registry: ConnectorRegistry) -> DiscoveryService:
@@ -226,17 +249,13 @@ class LinkedInMCPPipelineService:
         )
 
     def _explain(self, rec: Recommendation, title: str, company: str) -> str:
-        """Generate a deterministic explanation from the explainable score."""
+        """Generate a concise, natural-language "why" from the explainable score."""
         if self._explainer is not None:
             return self._explainer(rec, title, company)
-        parts = [
-            f"{title} at {company or 'unknown'} matches your profile with a score of "
-            f"{rec.final_score:.1f} (cutoff {self._cutoff():.1f})."
-        ]
-        if rec.matched_detail.matched_skills:
-            parts.append(f"Matched skills: {', '.join(rec.matched_detail.matched_skills)}.")
-        if rec.matched_detail.missing_skills:
-            parts.append(f"Missing skills: {', '.join(rec.matched_detail.missing_skills)}.")
+        matched = list(rec.matched_detail.matched_skills)
         if rec.insights is not None and rec.insights.summary:
-            parts.append(rec.insights.summary)
-        return " ".join(parts)
+            return rec.insights.summary
+        if matched:
+            skills = ", ".join(matched[:3])
+            return f"Your experience with {skills} aligns strongly with this role."
+        return "This role matches your career profile."

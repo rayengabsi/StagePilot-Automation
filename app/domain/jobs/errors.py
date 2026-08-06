@@ -31,3 +31,11 @@ class PaginationError(DiscoveryError):
 
 class RateLimitExceededError(DiscoveryError):
     """Raised when a provider rate limit prevents further requests."""
+
+
+class LinkedInSessionExpiredError(DiscoveryError):
+    """Raised when the LinkedIn MCP server reports an expired session.
+
+    The authenticated browser profile must be refreshed with
+    ``python -m linkedin_mcp_server --login`` before searching again.
+    """

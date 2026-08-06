@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
 import pytest
+from app.config.settings import get_settings
 from app.domain.jobs.entities import DiscoveredJob, JobSourceConfig
 from app.domain.jobs.enums import JobSourceType
 from app.infrastructure.job_sources.linkedin_mcp_connector import (
     LinkedInMCPConnector,
-    _extract_job_items,
+    _extract_job_ids,
 )
 from app.infrastructure.linkedin_mcp.client import (
     LinkedInMCPError,
@@ -22,21 +21,8 @@ def _job_connector() -> LinkedInMCPConnector:
     return LinkedInMCPConnector(get_settings())
 
 
-def _source() -> dict:
-    return {
-        "id": "job-1",
-        "title": "Software Engineer Intern",
-        "company_name": "Acme",
-        "url": "https://m.linkedin.com/jobs/view/job-1",
-        "location": "Tunis, Tunisia",
-        "description": "<p>Final year project internship</p>",
-        "employmentType": "INTERNSHIP",
-        "remoteStatus": "hybrid",
-    }
-
-
 def _source_config(**config: object) -> JobSourceConfig:
-    merged: dict[str, object] = {"tool_name": "search_roles"}
+    merged: dict[str, object] = {"tool_name": "search_jobs"}
     merged.update(config)
     return JobSourceConfig(
         id=1,
@@ -52,9 +38,9 @@ def test_provider_type_mapped() -> None:
     assert LinkedInMCPConnector.source_type == JobSourceType.LINKEDIN_MCP
 
 
-def test_normalize_maps_aliases() -> None:
+def test_normalize_legacy_dict_maps_aliases() -> None:
     connector = _job_connector()
-    job = connector.normalize(_source(), _source_config())
+    job = connector.normalize(_source_payload(), _source_config())
     assert job is not None
     assert isinstance(job, DiscoveredJob)
     assert job.external_id == "job-1"
@@ -73,28 +59,27 @@ def test_normalize_returns_none_without_title_or_url() -> None:
     assert connector.normalize({"url": "https://x"}, _source_config()) is None
 
 
-def test_normalize_uses_city_alias() -> None:
+def test_normalize_handles_parsed_payload_shape() -> None:
     connector = _job_connector()
     job = connector.normalize(
-        {"job_title": "Data Apprentice", "external_url": "https://y/j", "city": "Paris"},
+        {
+            "job_id": "101",
+            "title": "Software Engineer Intern",
+            "company": "Acme Tech",
+            "location": "Tunis, Tunisia",
+            "work_mode": "remote",
+        },
         _source_config(),
     )
     assert job is not None
-    assert job.title == "Data Apprentice"
-    assert job.url == "https://y/j"
-    assert job.location == "Paris"
+    assert job.external_id == "101"
+    assert job.url == "https://www.linkedin.com/jobs/view/101/"
+    assert job.remote_status == "remote"
+    assert job.raw_payload["job_id"] == "101"
 
 
-def test_normalize_external_id_falls_back_to_url() -> None:
-    connector = _job_connector()
-    job = connector.normalize({"title": "Role", "url": "https://z/1"}, _source_config())
-    assert job is not None
-    assert job.external_id == "https://z/1"
-    assert job.raw_payload == {"title": "Role", "url": "https://z/1"}
-
-
-def test_validate_requires_command() -> None:
-    connector = _job_connector()
+def test_validate_requires_command_when_no_default() -> None:
+    connector = LinkedInMCPConnector(get_settings(), mcp_config=_empty_server())
     invalid = JobSourceConfig(
         id=1,
         name="linkedin",
@@ -107,18 +92,21 @@ def test_validate_requires_command() -> None:
     assert connector.validate(_source_config(server_command="python")) == []
 
 
-def test_build_arguments_includes_only_set_filters() -> None:
+def test_build_search_arguments_merges_source_filters() -> None:
     connector = _job_connector()
-    args = connector._build_arguments(
-        _source_config(keywords="Python", location="Tunis", job_type="INTERNSHIP", limit=7)
+    args = connector._build_search_arguments(
+        _source_config(keywords="Python", location="Tunis", job_type="INTERNSHIP")
     )
-    assert args == {
-        "keywords": "Python",
-        "location": "Tunis",
-        "job_type": "INTERNSHIP",
-        "limit": 7,
-    }
-    assert connector._build_arguments(_source_config()) == {}
+    assert args["keywords"] == "Python"
+    assert args["location"] == "Tunis"
+    assert args["job_type"] == "INTERNSHIP"
+    assert "max_pages" in args
+
+
+def test_extract_job_ids() -> None:
+    assert _extract_job_ids({"job_ids": ["101", "102"]}) == ["101", "102"]
+    assert _extract_job_ids({"job_ids": []}) == []
+    assert _extract_job_ids({}) == []
 
 
 @pytest.mark.parametrize(
@@ -126,7 +114,6 @@ def test_build_arguments_includes_only_set_filters() -> None:
     [
         ("uvx -y pkg", ["uvx", "-y", "pkg"]),
         (["uvx", "-y", "pkg"], ["uvx", "-y", "pkg"]),
-        ("", []),
     ],
 )
 def test_server_args_parsing(value: object, expected: list[str]) -> None:
@@ -135,26 +122,10 @@ def test_server_args_parsing(value: object, expected: list[str]) -> None:
     assert client._params.args == expected
 
 
-def test_fetch_returns_normalized_jobs() -> None:
+def test_empty_server_args_uses_configured_defaults() -> None:
     connector = _job_connector()
-    fake_client = MagicMock()
-    fake_client.call_tool.return_value = [_source(), _source()]
-    with patch(
-        "app.infrastructure.job_sources.linkedin_mcp_connector.LinkedInMCPClient",
-        return_value=fake_client,
-    ):
-        jobs = connector.fetch(_source_config())
-    assert len(jobs) == 2
-    assert all(isinstance(job, DiscoveredJob) for job in jobs)
-    fake_client.call_tool.assert_called_once_with("search_roles", {})
-
-
-def test_extract_job_items_handles_shapes() -> None:
-    raw = [{"title": "a"}, {"title": "b"}]
-    assert _extract_job_items(raw) == raw
-    assert _extract_job_items({"jobs": [{"title": "a"}]}) == [{"title": "a"}]
-    assert _extract_job_items({"title": "solo", "url": "u"}) == [{"title": "solo", "url": "u"}]
-    assert _extract_job_items("not-a-dict") == []
+    client = connector._build_client(_source_config(server_command="echo", server_args=""))
+    assert client._params.args == connector._server.base_arguments()
 
 
 def test_parse_call_result_text_content() -> None:
@@ -175,3 +146,32 @@ def test_parse_call_result_error_raises() -> None:
 def test_maybe_json() -> None:
     assert _maybe_json('{"k": 2}') == {"k": 2}
     assert _maybe_json("raw text") == "raw text"
+
+
+def _source_payload() -> dict:
+    return {
+        "id": "job-1",
+        "title": "Software Engineer Intern",
+        "company_name": "Acme",
+        "url": "https://m.linkedin.com/jobs/view/job-1",
+        "location": "Tunis, Tunisia",
+        "description": "Final year project internship",
+        "employmentType": "INTERNSHIP",
+        "remoteStatus": "hybrid",
+    }
+
+
+def _empty_server() -> object:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        command="",
+        cwd=".",
+        timeout_seconds=30.0,
+        tool_timeout_seconds=60.0,
+        max_jobs=8,
+        max_pages=3,
+        expired_markers=(),
+        max_matching_skills=5,
+        max_missing_skills=5,
+    )

@@ -1,0 +1,64 @@
+# StagePilot LinkedIn MCP production configuration.
+#
+# This tells the LinkedInMCPConnector how to launch and talk to the real
+# LinkedIn MCP server over stdio. The server is started automatically by the
+# connector; there is no manual startup step.
+#
+# The `[gateway]` section controls the server process. `command` points at a
+# Python interpreter that has the `linkedin_mcp_server` package installed and
+# the server is launched as `command -m <module> --transport <transport>`.
+# Relative paths are resolved against this repository. Tilde (~) is expanded.
+
+[gateway]
+command = "C:/Projects/linkedin-mcp-server/.venv/Scripts/python.exe"
+cwd = "C:/Projects/linkedin-mcp-server"
+module = "linkedin_mcp_server"
+transport = "stdio"
+timeout_seconds = 90.0
+tool_timeout_seconds = 180.0
+log_level = "WARNING"
+
+# Per-search limits and filters.
+max_jobs = 8
+max_pages = 3
+date_posted = "past_week"
+sort_by = "date"
+job_type = ""
+experience_level = ""
+
+[gateway.auth]
+# Substrings that, when present in a MCP error, mean the LinkedIn session
+# expired and the connector raises LinkedInSessionExpired so the caller can
+# print a clear re-login instruction instead of crashing.
+expired_markers = [
+  "authentication",
+  "relogin",
+  "session expired",
+  "login required",
+  "unauthorized",
+  "sign in",
+  "not logged in",
+]
+
+# Persistent browser profile used by the real server. Empty means the server
+# uses its own default (~/.linkedin-mcp/profile). Provided so the profile can
+# be relocated or shared.
+user_data_dir = ""
+
+# Launch the interactive login with a visible browser window so the user can
+# sign in. The resulting profile is saved and reused on later runs.
+login_headed = true
+
+# Bounds for the `--status` and `--login` subprocesses. Login blocks until the
+# user finishes signing in, so it tolerates a long window.
+status_timeout_seconds = 300
+login_timeout_seconds = 3600
+
+[notify]
+# Persisted set of LinkedIn job ids that were already delivered to Telegram,
+# so the same job is never notified twice. This file is gitignored and can be
+# replaced by a database-backed NotificationStateRepository later.
+state_file = "data/linkedin/notified.json"
+
+max_matching_skills = 5
+max_missing_skills = 5
