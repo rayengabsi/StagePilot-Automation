@@ -550,6 +550,22 @@ def _build_parser() -> argparse.ArgumentParser:
     ar_snooze_parser.add_argument("--actor", type=str, default="cli", help="Actor name.")
     ar_snooze_parser.set_defaults(handler=_handle_application_reminder_snooze)
 
+    agent_parser = subparsers.add_parser(
+        "agent", help="Chat with the StagePilot Career Agent."
+    )
+    agent_parser.add_argument(
+        "--message",
+        type=str,
+        default=None,
+        help="Process a single message and exit.",
+    )
+    agent_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the full structured agent response as JSON.",
+    )
+    agent_parser.set_defaults(handler=_handle_agent)
+
     telegram_parser = subparsers.add_parser("telegram", help="Telegram integration.")
     telegram_subparsers = telegram_parser.add_subparsers(dest="telegram_command")
 
@@ -905,6 +921,45 @@ def _handle_scheduler_start(args: argparse.Namespace, settings: Settings) -> int
     svc = SchedulerService(settings=settings)
     svc.start(interval)
     return 0
+
+
+def _handle_agent(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle the agent command (single message or interactive REPL)."""
+    from app.agent.agent import CareerAgent
+
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    session = session_factory()
+    try:
+        agent = CareerAgent(session=session, settings=settings)
+
+        if args.message:
+            response = agent.handle(args.message)
+            if args.json:
+                print(json.dumps(response.to_dict(), indent=2, default=str))
+            else:
+                print(response.message)
+            return 0 if response.success else 1
+
+        print("StagePilot Career Agent. Type 'help' for capabilities, 'exit' to quit.")
+        while True:
+            try:
+                line = input("you> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if not line:
+                continue
+            if line.lower() in {"exit", "quit", "q"}:
+                break
+            response = agent.handle(line)
+            session.commit()
+            print(f"agent> {response.message}")
+        return 0
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 def _handle_discover(args: argparse.Namespace, settings: Settings) -> int:
