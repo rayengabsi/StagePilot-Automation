@@ -16,6 +16,11 @@ from app.db.session import create_database_engine, create_session_factory, sessi
 from app.domain.master_profile.errors import ProfileValidationError
 from app.domain.master_profile.errors import ValidationError as ProfileValidationIssue
 from app.infrastructure.job_sources.registry import build_connector_registry
+from app.infrastructure.linkedin_mcp.stage_logging import (
+    JsonStageLogger,
+    LinkedInStageLogger,
+    QuietStageLogger,
+)
 from app.infrastructure.parsers.parser_factory import detect_parser
 from app.infrastructure.parsers.pdf_parser import PDFParser
 from app.services.ai_orchestrator import AIOrchestrator
@@ -632,6 +637,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Fail fast with login instructions instead of launching the login flow.",
     )
+    linkedin_notify.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Emit one structured JSON line per pipeline stage.",
+    )
     linkedin_notify.set_defaults(handler=_handle_linkedin_notify)
 
     linkedin_status = linkedin_subparsers.add_parser(
@@ -1215,6 +1225,13 @@ def _handle_linkedin_match(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _stage_logger(args: argparse.Namespace) -> LinkedInStageLogger:
+    """Return a structured stage logger when --verbose was passed."""
+    if getattr(args, "verbose", False):
+        return JsonStageLogger()
+    return QuietStageLogger()
+
+
 def _handle_linkedin_status(_args: argparse.Namespace, _settings: Settings) -> int:
     """Check the persisted LinkedIn session through the real server's --status."""
     from app.config.linkedin_mcp_config import get_linkedin_mcp_config
@@ -1313,7 +1330,11 @@ def _handle_linkedin_notify(args: argparse.Namespace, settings: Settings) -> int
     engine = create_database_engine(settings)
     session_factory = create_session_factory(engine)
     with session_scope(session_factory) as session:
-        service = LinkedInNotifyService(session=session, settings=settings)
+        service = LinkedInNotifyService(
+            session=session,
+            settings=settings,
+            stage_logger=_stage_logger(args),
+        )
         result = service.run(top_n=args.top)
 
     print(json.dumps(result.to_dict(), sort_keys=True))

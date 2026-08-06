@@ -29,6 +29,10 @@ from app.infrastructure.linkedin_mcp.notification_state import (
     JsonNotificationStateRepository,
     NotificationStateRepository,
 )
+from app.infrastructure.linkedin_mcp.stage_logging import (
+    LinkedInStageLogger,
+    QuietStageLogger,
+)
 from app.infrastructure.telegram.notification import TelegramNotificationService
 from app.services.linkedin_mcp_pipeline_service import (
     LinkedInMCPPipelineResult,
@@ -91,6 +95,7 @@ class LinkedInNotifyService:
         state_repo: NotificationStateRepository | None = None,
         notifier: TelegramNotificationService | None = None,
         pipeline: LinkedInMCPPipelineService | None = None,
+        stage_logger: LinkedInStageLogger | None = None,
     ) -> None:
         self._session = session
         self._settings = settings or get_settings()
@@ -101,19 +106,35 @@ class LinkedInNotifyService:
         self._pipeline = pipeline or LinkedInMCPPipelineService(
             session=self._session, settings=self._settings
         )
+        self._stages = stage_logger or QuietStageLogger()
 
     def run(self, top_n: int | None = None) -> LinkedInNotifyResult:
         """Run the full lifecycle and return a never-raising result."""
+        self._stages.stage("start", status="ok")
         logger.info("LinkedIn MCP started")
         try:
             pipeline_result = self._pipeline.run(top_n=top_n)
         except LinkedInSessionExpiredError:
+            self._stages.stage("auth", status="auth_required")
             logger.warning("LinkedIn session expired; login required")
             return LinkedInNotifyResult(status="auth_required", message=_AUTH_MESSAGE)
         except Exception as exc:
+            self._stages.stage("pipeline", status="error", error=str(exc))
             logger.error("LinkedIn notify pipeline failed: %s", exc)
             return LinkedInNotifyResult(status="error", message=str(exc))
 
+        self._stages.stage(
+            "fetch",
+            status="ok",
+            source=(
+                f"{pipeline_result.source_id}:{pipeline_result.source_name}"
+                if pipeline_result.source_id is not None
+                else None
+            ),
+            fetched=pipeline_result.fetched,
+            duplicates=pipeline_result.duplicates,
+            rejected=pipeline_result.rejected,
+        )
         return self._deliver(pipeline_result)
 
     def _deliver(self, pipeline_result: LinkedInMCPPipelineResult) -> LinkedInNotifyResult:
@@ -127,6 +148,16 @@ class LinkedInNotifyService:
             for rec in new_matches:
                 self._mark_notified(rec.url)
 
+        self._stages.stage(
+            "deliver",
+            status="ok",
+            matched=pipeline_result.matched_total,
+            above=len(above),
+            new=len(new_matches),
+            already=already,
+            sent=telegram_sent,
+        )
+
         logger.info(
             "LinkedIn notify: found=%d matched=%d above=%d new=%d already=%d sent=%d",
             pipeline_result.fetched,
@@ -137,7 +168,7 @@ class LinkedInNotifyService:
             telegram_sent,
         )
 
-        return LinkedInNotifyResult(
+        result = LinkedInNotifyResult(
             status="ok",
             source_id=pipeline_result.source_id,
             fetched=pipeline_result.fetched,
@@ -150,6 +181,14 @@ class LinkedInNotifyService:
             telegram_sent=telegram_sent,
             message="LinkedIn MCP closed",
         )
+        self._stages.stage(
+            "summary",
+            status="ok",
+            status_code=str(result.status),
+            new=result.new_matches,
+            sent=result.telegram_sent,
+        )
+        return result
 
     def _is_notified(self, url: str) -> bool:
         return self._state.is_notified(url)
