@@ -7,6 +7,7 @@ LinkedIn recommendation.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import Mock
 
 import pytest
@@ -83,6 +84,42 @@ def test_format_linked_match_message_caps_skill_lists() -> None:
     assert "m2" not in text
 
 
+def test_format_linked_match_message_rich_fields() -> None:
+    text = format_linked_match_message(
+        title="Backend Engineer",
+        company="Acme Tech",
+        company_size="51-200 employees",
+        location="Tunis, Tunisia",
+        url="https://www.linkedin.com/jobs/view/101/",
+        final_score=62.0,
+        why="Python aligns with your profile.",
+        salary="$80,000 - $110,000 per year",
+        employment_type="Full-time",
+        experience_level="Mid-Senior",
+        recruiter="Jane Doe",
+        posted_at=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+    assert "Acme Tech" in text and "51-200 employees" in text
+    assert "$80,000 - $110,000 per year" in text
+    assert "Full-time" in text
+    assert "Mid-Senior" in text
+    assert "Jane Doe" in text
+    assert "2026-08-01" in text
+
+
+def test_format_linked_match_message_omits_absent_rich_fields() -> None:
+    text = format_linked_match_message(
+        title="Engineer",
+        company=None,
+        location=None,
+        url="https://x",
+        final_score=50.0,
+        why="x",
+    )
+    assert "Recruiter" not in text
+    assert "Posted" not in text
+
+
 def test_format_linked_match_message_defaults_missing_fields() -> None:
     text = format_linked_match_message(
         title="",
@@ -131,6 +168,40 @@ def test_send_linkedin_matches_broadcasts_above_threshold(
     assert sent == 1
     assert len(sent_texts) == 1
     assert "New Career Match" in sent_texts[0]
+
+
+def test_send_linkedin_matches_includes_rich_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.infrastructure.telegram.notification.get_telegram_config",
+        lambda: TelegramConfig(bot_token="test:token", allowed_chat_ids=[123]),
+    )
+    service = TelegramNotificationService()
+    sent_texts: list[str] = []
+    monkeypatch.setattr(service, "_broadcast", lambda text: sent_texts.append(text))
+    rec = _recommendation()
+    rec = LinkedInMCPRecommendationResult(
+        job_id=rec.job_id,
+        title=rec.title,
+        company=rec.company,
+        location=rec.location,
+        url=rec.url,
+        final_score=rec.final_score,
+        status=rec.status,
+        above_threshold=True,
+        explanation=rec.explanation,
+        matched_skills=rec.matched_skills,
+        missing_skills=rec.missing_skills,
+        salary="€80,000 - €100,000",
+        employment_type="Full-time",
+    )
+
+    service.send_linkedin_matches((rec,))
+
+    assert len(sent_texts) == 1
+    assert "€80,000 - €100,000" in sent_texts[0]
+    assert "Full-time" in sent_texts[0]
 
 
 def test_send_linkedin_matches_requires_token(monkeypatch: pytest.MonkeyPatch) -> None:

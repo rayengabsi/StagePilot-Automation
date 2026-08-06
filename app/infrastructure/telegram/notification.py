@@ -65,6 +65,12 @@ class TelegramNotificationService:
                 why=rec.explanation,
                 matched_skills=list(rec.matched_skills),
                 missing_skills=list(rec.missing_skills),
+                salary=rec.salary,
+                employment_type=rec.employment_type,
+                experience_level=rec.experience_level,
+                company_size=rec.company_size,
+                recruiter=rec.recruiter,
+                posted_at=rec.posted_at,
                 max_length=self._config.max_message_length,
             )
             self._broadcast(text)

@@ -115,16 +115,22 @@ def format_linked_match_message(
     why: str,
     matched_skills: list[str] | tuple[str, ...] = (),
     missing_skills: list[str] | tuple[str, ...] = (),
+    salary: str | None = None,
+    employment_type: str | None = None,
+    experience_level: str | None = None,
+    company_size: str | None = None,
+    recruiter: str | None = None,
+    posted_at: str | datetime | None = None,
     max_matching_skills: int = 5,
     max_missing_skills: int = 5,
     max_length: int = 4096,
 ) -> str:
-    """Format a concise above-threshold LinkedIn match card for Telegram."""
+    """Format a rich above-threshold LinkedIn match card for Telegram."""
     lines = [
         "🚀 *New Career Match*",
         SEPARATOR,
         "🏢 *Company*",
-        _md(company or UNKNOWN),
+        " ".join(part for part in (company, company_size) if part) or UNKNOWN,
         "",
         "💼 *Position*",
         _md(title or UNKNOWN),
@@ -132,10 +138,27 @@ def format_linked_match_message(
         "📍 *Location*",
         _md(location or UNKNOWN),
         "",
-        "🎯 *Match*",
-        f"{final_score:.0f}%",
-        "",
     ]
+
+    facts = []
+    if salary:
+        facts.append(f"💰 *{_md(salary)}*")
+    if posted_at:
+        facts.append(f"📅 Posted {_md(_format_date(posted_at))}")
+    if employment_type:
+        facts.append(f"🧩 {_md(employment_type)}")
+    if experience_level:
+        facts.append(f"📈 {_md(experience_level)}")
+    for fact in facts:
+        lines.extend([fact, ""])
+
+    lines.extend(
+        [
+            "🎯 *Match*",
+            f"{final_score:.0f}%",
+            "",
+        ]
+    )
     if matched_skills:
         lines.append("✅ *Matching Skills*")
         lines.extend(_bullets(list(matched_skills)[:max_matching_skills], empty=UNKNOWN))
@@ -150,6 +173,12 @@ def format_linked_match_message(
             "",
             _md(why or UNKNOWN),
             "",
+        ]
+    )
+    if recruiter:
+        lines.extend(["👤 *Recruiter*", _md(recruiter), ""])
+    lines.extend(
+        [
             "🔗 *Apply*",
             _md(url or UNKNOWN),
         ]

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -58,6 +59,12 @@ class LinkedInMCPRecommendationResult:
     explanation: str
     matched_skills: tuple[str, ...]
     missing_skills: tuple[str, ...]
+    salary: str | None = None
+    employment_type: str | None = None
+    experience_level: str | None = None
+    company_size: str | None = None
+    recruiter: str | None = None
+    posted_at: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation."""
@@ -73,6 +80,12 @@ class LinkedInMCPRecommendationResult:
             "explanation": self.explanation,
             "matched_skills": list(self.matched_skills),
             "missing_skills": list(self.missing_skills),
+            "salary": self.salary,
+            "employment_type": self.employment_type,
+            "experience_level": self.experience_level,
+            "company_size": self.company_size,
+            "recruiter": self.recruiter,
+            "posted_at": self.posted_at.isoformat() if self.posted_at else None,
         }
 
 
@@ -234,6 +247,7 @@ class LinkedInMCPPipelineService:
         url = job.url if job else ""
         above = rec.final_score >= cutoff
         explanation = self._explain(rec, title, company)
+        payload = _raw_payload(job)
         return LinkedInMCPRecommendationResult(
             job_id=rec.job_id,
             title=title,
@@ -246,6 +260,13 @@ class LinkedInMCPPipelineService:
             explanation=explanation,
             matched_skills=tuple(rec.matched_detail.matched_skills),
             missing_skills=tuple(rec.matched_detail.missing_skills),
+            salary=_payload_str(payload, "salary"),
+            employment_type=_payload_str(payload, "employment_type")
+            or (job.employment_type if job else None),
+            experience_level=_payload_str(payload, "experience_level"),
+            company_size=_payload_str(payload, "company_size"),
+            recruiter=_payload_str(payload, "recruiter"),
+            posted_at=job.posted_at if job else None,
         )
 
     def _explain(self, rec: Recommendation, title: str, company: str) -> str:
@@ -259,3 +280,21 @@ class LinkedInMCPPipelineService:
             skills = ", ".join(matched[:3])
             return f"Your experience with {skills} aligns strongly with this role."
         return "This role matches your career profile."
+
+
+def _raw_payload(job: Job | None) -> dict[str, Any]:
+    """Return the raw LinkedIn payload stored on a job, or empty."""
+    if job is None:
+        return {}
+    raw_job = getattr(job, "raw_job", None)
+    if raw_job is None:
+        return {}
+    payload = getattr(raw_job, "raw_payload_json", None)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _payload_str(payload: dict[str, Any], key: str) -> str | None:
+    value = payload.get(key)
+    if value in (None, ""):
+        return None
+    return str(value)
