@@ -1265,29 +1265,43 @@ def _stage_logger(args: argparse.Namespace) -> LinkedInStageLogger:
 
 
 def _handle_linkedin_status(_args: argparse.Namespace, _settings: Settings) -> int:
-    """Check the persisted LinkedIn session through the real server's --status."""
+    """Check the persisted LinkedIn session under a hard deadline."""
     from app.config.linkedin_mcp_config import get_linkedin_mcp_config
     from app.infrastructure.linkedin_mcp.auth import (
-        LinkedInAuthError,
         LinkedInMCPAuthClient,
+        LinkedInSessionStatus,
     )
 
-    auth = LinkedInMCPAuthClient(get_linkedin_mcp_config())
-    try:
-        authenticated = auth.is_authenticated()
-    except LinkedInAuthError as exc:
-        print(json.dumps({"authenticated": False, "error": str(exc)}, sort_keys=True))
-        return 1
+    config = get_linkedin_mcp_config()
+    auth = LinkedInMCPAuthClient(config)
+    state = auth.session_status(
+        timeout=getattr(config, "status_probe_timeout_seconds", 20.0)
+    )
 
-    print(json.dumps({"authenticated": authenticated}, sort_keys=True))
-    if not authenticated:
+    print(
+        json.dumps(
+            {
+                "authenticated": state is LinkedInSessionStatus.AUTHENTICATED,
+                "state": state.value,
+            },
+            sort_keys=True,
+        )
+    )
+    if state is LinkedInSessionStatus.AUTHENTICATED:
+        return 0
+    if state is LinkedInSessionStatus.NEEDS_LOGIN:
         print(
             "No valid LinkedIn session found.\n"
             "Run `stagepilot linkedin login` to authenticate once.",
             file=sys.stderr,
         )
         return 2
-    return 0
+    print(
+        f"LinkedIn session could not be verified (state={state.value}). "
+        "The LinkedIn MCP server did not respond in time.",
+        file=sys.stderr,
+    )
+    return 1
 
 
 def _handle_linkedin_login(_args: argparse.Namespace, _settings: Settings) -> int:
@@ -1325,14 +1339,25 @@ def _handle_linkedin_notify(args: argparse.Namespace, settings: Settings) -> int
     from app.infrastructure.linkedin_mcp.auth import (
         LinkedInAuthError,
         LinkedInMCPAuthClient,
+        LinkedInSessionStatus,
     )
     from app.services.linkedin_notify_service import LinkedInNotifyService
 
-    auth = LinkedInMCPAuthClient(get_linkedin_mcp_config())
-    try:
-        authenticated = auth.is_authenticated()
-    except LinkedInAuthError as exc:
-        print(str(exc), file=sys.stderr)
+    config = get_linkedin_mcp_config()
+    auth = LinkedInMCPAuthClient(config)
+    state = auth.session_status(
+        timeout=getattr(config, "status_probe_timeout_seconds", 20.0)
+    )
+    if state is LinkedInSessionStatus.AUTHENTICATED:
+        authenticated = True
+    elif state is LinkedInSessionStatus.NEEDS_LOGIN:
+        authenticated = False
+    else:
+        print(
+            f"LinkedIn session could not be verified (state={state.value}). "
+            "The LinkedIn MCP server did not respond in time.",
+            file=sys.stderr,
+        )
         return 1
 
     if not authenticated:

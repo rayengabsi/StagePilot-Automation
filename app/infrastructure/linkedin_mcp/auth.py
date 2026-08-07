@@ -18,6 +18,7 @@ from __future__ import annotations
 import subprocess
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from enum import StrEnum
 
 from app.config.linkedin_mcp_config import LinkedInMCPConfig
 
@@ -25,6 +26,7 @@ __all__ = [
     "LinkedInAuthError",
     "LinkedInMCPAuthClient",
     "LinkedInSessionProvider",
+    "LinkedInSessionStatus",
 ]
 
 
@@ -32,8 +34,21 @@ class LinkedInAuthError(RuntimeError):
     """Raised when the LinkedIn session state cannot be determined or changed."""
 
 
+class LinkedInSessionStatus(StrEnum):
+    """Structured outcome of a session check; never a bare boolean."""
+
+    AUTHENTICATED = "authenticated"
+    NEEDS_LOGIN = "needs_login"
+    TIMEOUT = "timeout"
+    ERROR = "error"
+
+
 class LinkedInSessionProvider(ABC):
     """Port for checking and establishing a logged-in LinkedIn session."""
+
+    @abstractmethod
+    def session_status(self, *, timeout: float | None = None) -> LinkedInSessionStatus:
+        """Return the structured session state without ever blocking forever."""
 
     @abstractmethod
     def is_authenticated(self) -> bool:
@@ -55,6 +70,32 @@ class LinkedInMCPAuthClient(LinkedInSessionProvider):
         args = self._command("--status")
         returncode = self._run(args, timeout=self._config.status_timeout_seconds)
         return returncode == 0
+
+    def session_status(self, *, timeout: float | None = None) -> LinkedInSessionStatus:
+        """Return a structured session state under a hard deadline.
+
+        Unlike ``is_authenticated`` this never raises and never blocks beyond
+        the configured bound: an unresponsive server is reported as
+        ``LinkedInSessionStatus.TIMEOUT`` so callers (doctor, notify preflight,
+        the status command) always make progress.
+        """
+        hard = self._config.status_timeout_seconds if timeout is None else timeout
+        args = self._command("--status")
+        try:
+            result = subprocess.run(  # noqa: S603 - command comes from trusted config
+                list(args),
+                capture_output=True,
+                text=True,
+                timeout=None if hard <= 0 else hard,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return LinkedInSessionStatus.TIMEOUT
+        except OSError:
+            return LinkedInSessionStatus.ERROR
+        if result.returncode == 0:
+            return LinkedInSessionStatus.AUTHENTICATED
+        return LinkedInSessionStatus.NEEDS_LOGIN
 
     def login(self) -> bool:
         """Run the interactive, headed login flow and persist the session."""

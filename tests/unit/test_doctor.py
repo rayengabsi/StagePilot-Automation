@@ -11,6 +11,7 @@ from typing import NoReturn
 
 import pytest
 from app.infrastructure.diagnostics.doctor import DoctorCheck, run_doctor
+from app.infrastructure.linkedin_mcp.auth import LinkedInSessionStatus
 
 
 class _FakeSession:
@@ -23,10 +24,25 @@ class _FakeSession:
 
 class _FakeAuth:
     def __init__(self, _config: object, *, authenticated: bool = True) -> None:
-        self._authenticated = authenticated
+        self._status = (
+            LinkedInSessionStatus.AUTHENTICATED
+            if authenticated
+            else LinkedInSessionStatus.NEEDS_LOGIN
+        )
 
     def is_authenticated(self) -> bool:
-        return self._authenticated
+        return self._status is LinkedInSessionStatus.AUTHENTICATED
+
+    def session_status(self, *, timeout: float | None = None) -> LinkedInSessionStatus:
+        return self._status
+
+
+class _FakeStatusAuth:
+    def __init__(self, _config: object, *, _status=None) -> None:  # noqa: ANN001
+        self._status = _status
+
+    def session_status(self, *, timeout: float | None = None) -> LinkedInSessionStatus:
+        return self._status
 
 
 def _stub_linkedin(monkeypatch: pytest.MonkeyPatch, *, command: str = "x.exe") -> None:
@@ -87,6 +103,30 @@ def test_linkedin_session_flags_missing_cookie(monkeypatch: pytest.MonkeyPatch) 
     linkedin = next(c for c in report.checks if c.name == "linkedin_session")
     assert linkedin.ok is False
     assert "login" in linkedin.message
+
+
+def test_linkedin_session_reports_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_linkedin(monkeypatch)
+    monkeypatch.setattr(
+        "app.infrastructure.diagnostics.doctor.LinkedInMCPAuthClient",
+        lambda _config: _FakeStatusAuth(_config, _status=LinkedInSessionStatus.TIMEOUT),
+    )
+    report = run_doctor(session_factory=lambda: _FakeSession())
+    linkedin = next(c for c in report.checks if c.name == "linkedin_session")
+    assert linkedin.ok is False
+    assert "timed out" in linkedin.message
+
+
+def test_linkedin_session_reports_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_linkedin(monkeypatch)
+    monkeypatch.setattr(
+        "app.infrastructure.diagnostics.doctor.LinkedInMCPAuthClient",
+        lambda _config: _FakeStatusAuth(_config, _status=LinkedInSessionStatus.ERROR),
+    )
+    report = run_doctor(session_factory=lambda: _FakeSession())
+    linkedin = next(c for c in report.checks if c.name == "linkedin_session")
+    assert linkedin.ok is False
+    assert "could not be validated" in linkedin.message
 
 
 def test_run_doctor_survives_blown_probe(monkeypatch: pytest.MonkeyPatch) -> None:

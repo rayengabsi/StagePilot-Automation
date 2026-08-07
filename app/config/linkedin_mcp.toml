@@ -62,6 +62,12 @@ login_headed = true
 status_timeout_seconds = 300
 login_timeout_seconds = 3600
 
+# Hard deadline for the cheap, non-interactive session probe used by `doctor`
+# and by the `linkedin status` / `linkedin notify` preflight so StagePilot
+# never freezes on an unresponsive server. A missed deadline is reported as a
+# structured "timeout" state rather than hanging.
+status_probe_timeout_seconds = 20
+
 [notify]
 # Persisted set of LinkedIn job ids that were already delivered to Telegram,
 # so the same job is never notified twice. This file is gitignored and can be

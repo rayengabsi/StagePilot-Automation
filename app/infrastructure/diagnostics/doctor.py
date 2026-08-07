@@ -19,8 +19,8 @@ from dataclasses import dataclass
 from app.config.linkedin_mcp_config import get_linkedin_mcp_config
 from app.config.telegram_config import get_telegram_config
 from app.infrastructure.linkedin_mcp.auth import (
-    LinkedInAuthError,
     LinkedInMCPAuthClient,
+    LinkedInSessionStatus,
 )
 from sqlalchemy import text
 
@@ -153,17 +153,33 @@ def _probe_linkedin_session(_sf: Callable[[], object] | None) -> DoctorCheck:
             message="no saved LinkedIn session; run `stagepilot linkedin login`",
         )
     try:
-        authenticated = LinkedInMCPAuthClient(config).is_authenticated()
-    except LinkedInAuthError:
+        status = LinkedInMCPAuthClient(config).session_status(
+            timeout=getattr(config, "status_probe_timeout_seconds", 20.0)
+        )
+    except Exception as exc:  # defensive: a probe must never crash the report
         return DoctorCheck(
             name="linkedin_session",
             ok=False,
-            message="saved session present but could not be validated",
+            message=f"session validation failed: {exc}",
+        )
+    if status is LinkedInSessionStatus.AUTHENTICATED:
+        return DoctorCheck(name="linkedin_session", ok=True, message="authenticated session")
+    if status is LinkedInSessionStatus.NEEDS_LOGIN:
+        return DoctorCheck(
+            name="linkedin_session",
+            ok=False,
+            message="session needs re-login; run `stagepilot linkedin login`",
+        )
+    if status is LinkedInSessionStatus.TIMEOUT:
+        return DoctorCheck(
+            name="linkedin_session",
+            ok=False,
+            message="session check timed out; LinkedIn MCP server did not respond",
         )
     return DoctorCheck(
         name="linkedin_session",
-        ok=bool(authenticated),
-        message="authenticated session" if authenticated else "session needs re-login",
+        ok=False,
+        message="saved session present but could not be validated",
     )
 
 

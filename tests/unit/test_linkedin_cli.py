@@ -11,6 +11,7 @@ from app.cli.commands import (
     _handle_linkedin_notify,
     _handle_linkedin_status,
 )
+from app.infrastructure.linkedin_mcp.auth import LinkedInSessionStatus
 from app.services.linkedin_notify_service import LinkedInNotifyResult
 
 
@@ -62,7 +63,7 @@ def test_linkedin_notify_handler_runs_pipeline_and_sends(
     mock_engine.return_value = MagicMock()
     mock_factory.return_value.return_value = session
     mock_service.return_value.run.return_value = _notify_result()
-    mock_auth.return_value.is_authenticated.return_value = True
+    mock_auth.return_value.session_status.return_value = LinkedInSessionStatus.AUTHENTICATED
 
     args = MagicMock()
     args.top = None
@@ -93,7 +94,7 @@ def test_linkedin_notify_handler_reports_zero_sent(
     mock_service.return_value.run.return_value = _notify_result(
         status="ok", telegram_sent=0, above_threshold=0, new_matches=0
     )
-    mock_auth.return_value.is_authenticated.return_value = True
+    mock_auth.return_value.session_status.return_value = LinkedInSessionStatus.AUTHENTICATED
 
     args = MagicMock()
     args.top = 10
@@ -120,7 +121,7 @@ def test_linkedin_notify_fails_fast_with_no_login_when_unauthenticated(
     session = MagicMock()
     mock_engine.return_value = MagicMock()
     mock_factory.return_value.return_value = session
-    mock_auth.return_value.is_authenticated.return_value = False
+    mock_auth.return_value.session_status.return_value = LinkedInSessionStatus.NEEDS_LOGIN
 
     args = MagicMock()
     args.top = None
@@ -149,7 +150,7 @@ def test_linkedin_notify_runs_login_when_unauthenticated(
     mock_engine.return_value = MagicMock()
     mock_factory.return_value.return_value = session
     mock_service.return_value.run.return_value = _notify_result()
-    mock_auth.return_value.is_authenticated.return_value = False
+    mock_auth.return_value.session_status.return_value = LinkedInSessionStatus.NEEDS_LOGIN
     mock_auth.return_value.login.return_value = True
 
     args = MagicMock()
@@ -165,10 +166,10 @@ def test_linkedin_notify_runs_login_when_unauthenticated(
 
 @patch("app.infrastructure.linkedin_mcp.auth.LinkedInMCPAuthClient")
 def test_linkedin_status_returns_exit_codes(mock_auth: MagicMock) -> None:
-    mock_auth.return_value.is_authenticated.return_value = True
+    mock_auth.return_value.session_status.return_value = LinkedInSessionStatus.AUTHENTICATED
     assert _handle_linkedin_status(MagicMock(), MagicMock()) == 0
 
-    mock_auth.return_value.is_authenticated.return_value = False
+    mock_auth.return_value.session_status.return_value = LinkedInSessionStatus.NEEDS_LOGIN
     assert _handle_linkedin_status(MagicMock(), MagicMock()) == 2
 
 
