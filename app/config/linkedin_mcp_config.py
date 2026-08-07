@@ -31,6 +31,9 @@ class LinkedInMCPConfig:
     login_timeout_seconds: float
     status_timeout_seconds: float
     status_probe_timeout_seconds: float
+    startup_timeout_seconds: float
+    shutdown_timeout_seconds: float
+    ready_poll_seconds: float
     state_file: Path
     max_matching_skills: int
     max_missing_skills: int
@@ -45,6 +48,7 @@ class LinkedInMCPConfig:
         auth = gateway.get("auth", {})
         retry = gateway.get("retry", {})
         notify = raw.get("notify", {})
+        lifecycle = gateway.get("lifecycle", {})
         return cls(
             command=_resolve(gateway["command"]),
             cwd=_resolve(gateway.get("cwd", ".")),
@@ -67,6 +71,13 @@ class LinkedInMCPConfig:
             status_probe_timeout_seconds=float(
                 auth.get("status_probe_timeout_seconds", 20.0)
             ),
+            startup_timeout_seconds=float(
+                lifecycle.get("startup_timeout_seconds", 90.0)
+            ),
+            shutdown_timeout_seconds=float(
+                lifecycle.get("shutdown_timeout_seconds", 15.0)
+            ),
+            ready_poll_seconds=float(lifecycle.get("ready_poll_seconds", 2.0)),
             state_file=Path(_resolve(notify.get("state_file", "data/linkedin/notified.json"))),
             max_matching_skills=int(notify.get("max_matching_skills", 5)),
             max_missing_skills=int(notify.get("max_missing_skills", 5)),

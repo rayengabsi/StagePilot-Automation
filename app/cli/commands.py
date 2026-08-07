@@ -1341,6 +1341,7 @@ def _handle_linkedin_notify(args: argparse.Namespace, settings: Settings) -> int
         LinkedInMCPAuthClient,
         LinkedInSessionStatus,
     )
+    from app.infrastructure.linkedin_mcp.lifecycle import LinkedInMCPLifecycle
     from app.services.linkedin_notify_service import LinkedInNotifyService
 
     config = get_linkedin_mcp_config()
@@ -1391,6 +1392,7 @@ def _handle_linkedin_notify(args: argparse.Namespace, settings: Settings) -> int
             session=session,
             settings=settings,
             stage_logger=_stage_logger(args),
+            lifecycle=LinkedInMCPLifecycle(config),
         )
         result = service.run(top_n=args.top)
 

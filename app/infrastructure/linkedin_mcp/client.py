@@ -72,6 +72,31 @@ class LinkedInMCPClient:
         """
         return asyncio.run(self._call_many(calls))
 
+    def ping(self, timeout: float | None = None) -> bool:
+        """Open a session and confirm the server responds and is ready.
+
+        Used as the readiness handshake by the MCP lifecycle. Bound by an
+        overall deadline so an unresponsive server never hangs the caller; a
+        timeout or failed handshake returns ``False`` instead of raising.
+        """
+        try:
+            asyncio.run(self._ping(timeout))
+        except (TimeoutError, LinkedInMCPError):
+            return False
+        return True
+
+    async def _ping(self, timeout: float | None) -> None:
+        """Initialize one session (optionally bounded) and list tools."""
+
+        async def _handshake() -> None:
+            async with self._open_session() as session:
+                _ = await session.list_tools()
+
+        if timeout is None or timeout <= 0:
+            await _handshake()
+            return
+        await asyncio.wait_for(_handshake(), timeout=timeout)
+
     async def _call_many(self, calls: list[tuple[str, dict[str, Any] | None]]) -> list[object]:
         """Open one session and invoke each call sequentially."""
         try:

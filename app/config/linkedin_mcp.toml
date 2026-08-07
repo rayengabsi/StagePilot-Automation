@@ -68,6 +68,13 @@ login_timeout_seconds = 3600
 # structured "timeout" state rather than hanging.
 status_probe_timeout_seconds = 20
 
+[gateway.lifecycle]
+# Automatic server lifecycle: StagePilot starts the MCP server, waits until it
+# is ready, runs the job search, and shuts it down — no manual subprocesses.
+startup_timeout_seconds = 90   # overall deadline to reach "ready"
+shutdown_timeout_seconds = 15  # grace period before forcing the process to end
+ready_poll_seconds = 2         # interval between readiness probes
+
 [notify]
 # Persisted set of LinkedIn job ids that were already delivered to Telegram,
 # so the same job is never notified twice. This file is gitignored and can be

@@ -25,6 +25,10 @@ from sqlalchemy.orm import Session
 from app.config.linkedin_mcp_config import get_linkedin_mcp_config
 from app.config.settings import Settings, get_settings
 from app.domain.jobs.errors import LinkedInSessionExpiredError
+from app.infrastructure.linkedin_mcp.lifecycle import (
+    LinkedInMCPLifecycle,
+    LinkedInMCPLifecycleError,
+)
 from app.infrastructure.linkedin_mcp.notification_state import (
     JsonNotificationStateRepository,
     NotificationStateRepository,
@@ -96,6 +100,7 @@ class LinkedInNotifyService:
         notifier: TelegramNotificationService | None = None,
         pipeline: LinkedInMCPPipelineService | None = None,
         stage_logger: LinkedInStageLogger | None = None,
+        lifecycle: LinkedInMCPLifecycle | None = None,
     ) -> None:
         self._session = session
         self._settings = settings or get_settings()
@@ -107,11 +112,28 @@ class LinkedInNotifyService:
             session=self._session, settings=self._settings
         )
         self._stages = stage_logger or QuietStageLogger()
+        self._lifecycle = lifecycle
 
     def run(self, top_n: int | None = None) -> LinkedInNotifyResult:
         """Run the full lifecycle and return a never-raising result."""
         self._stages.stage("start", status="ok")
         logger.info("LinkedIn MCP started")
+        if self._lifecycle is not None:
+            try:
+                self._lifecycle.start()
+                self._stages.stage("lifecycle", status="ok", action="start")
+            except LinkedInMCPLifecycleError as exc:
+                self._stages.stage("lifecycle", status="error", action="start", error=str(exc))
+                logger.error("LinkedIn MCP failed to start: %s", exc)
+                return LinkedInNotifyResult(status="error", message=str(exc))
+        try:
+            return self._run_pipeline(top_n=top_n)
+        finally:
+            if self._lifecycle is not None:
+                self._lifecycle.stop()
+                self._stages.stage("lifecycle", status="ok", action="stop")
+
+    def _run_pipeline(self, top_n: int | None) -> LinkedInNotifyResult:
         try:
             pipeline_result = self._pipeline.run(top_n=top_n)
         except LinkedInSessionExpiredError:
