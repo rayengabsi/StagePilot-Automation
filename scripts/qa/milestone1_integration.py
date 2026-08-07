@@ -123,13 +123,18 @@ def run() -> list[Check]:
             Check(
                 "mcp_lifecycle",
                 "BLOCKED",
-                "real stdio handshake unavailable in this headless shell",
+                "installable MCP server; stdio handshake stalls in this shell",
                 [
                     f"command={params.command}",
                     f"args={params.args}",
                     f"cwd={params.cwd}",
-                    "evidence: server process not responding within 90s here; "
-                    "`--status` hangs too (chromium cannot boot headless)",
+                    "server IS headless-capable by default (drivers/browser.py "
+                    "_headless=True) with cookies imported on boot",
+                    "chromium-1228 (Chrome for Testing) is now installed",
+                    "raw piped stdio JSON-RPC (initialize/tools/list/search_jobs) "
+                    "round-trips in ~2s against the real server",
+                    "the installed `mcp` async SDK's client-side initialize() hangs "
+                    "in this environment; full boot deferred to desktop for QA M2",
                 ],
             )
         )
@@ -265,10 +270,14 @@ def run() -> list[Check]:
         Check(
             "linkedin_job_retrieval",
             "BLOCKED",
-            "real search needs a headed authenticated Chromium in a desktop session",
+            "session needs login (profile dir DACL owned by another account)",
             [
-                "session is authenticated; browser cannot boot in this headless shell",
-                "real jobs are verified in QA M2 on the desktop",
+                "_session_ready now requires the profile dir to be openable "
+                "(os.scandir) before reporting AUTHENTICATED",
+                "cookie/state files exist but the profile dir raises WinError 5 "
+                "(Access is denied) for the current user, so no real search can boot",
+                "server is headless-capable by default; re-login recreates the "
+                "profile with the current owner, then real jobs are verified in M2",
             ],
         )
     )
