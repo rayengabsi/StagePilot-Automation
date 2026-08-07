@@ -53,7 +53,13 @@ class LinkedInMCPConfig:
     retry_backoff: float
 
     @classmethod
-    def load(cls, path: Path = LINKEDIN_MCP_CONFIG_PATH) -> LinkedInMCPConfig:
+    def load(
+        cls,
+        path: Path = LINKEDIN_MCP_CONFIG_PATH,
+        env: dict[str, str] | None = None,
+        env_file: Path | None = None,
+    ) -> LinkedInMCPConfig:
+        effective = _effective_env(env, env_file)
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
         gateway = raw["gateway"]
         auth = gateway.get("auth", {})
@@ -61,13 +67,13 @@ class LinkedInMCPConfig:
         notify = raw.get("notify", {})
         lifecycle = gateway.get("lifecycle", {})
         return cls(
-            command=_resolve_command(_env_or(gateway["command"], "command")),
-            cwd=_resolve(_env_or(gateway.get("cwd", "."), "cwd")),
-            module=str(_env_or(gateway.get("module", "linkedin_mcp_server"), "module")),
+            command=_resolve_command(_env_or(gateway["command"], "command", effective)),
+            cwd=_resolve(_env_or(gateway.get("cwd", "."), "cwd", effective)),
+            module=str(_env_or(gateway.get("module", "linkedin_mcp_server"), "module", effective)),
             transport=str(gateway.get("transport", "stdio")),
             timeout_seconds=float(gateway.get("timeout_seconds", 90.0)),
             tool_timeout_seconds=float(gateway.get("tool_timeout_seconds", 180.0)),
-            log_level=str(_env_or(gateway.get("log_level", "WARNING"), "log_level")),
+            log_level=str(_env_or(gateway.get("log_level", "WARNING"), "log_level", effective)),
             max_jobs=int(gateway.get("max_jobs", 8)),
             max_pages=int(gateway.get("max_pages", 3)),
             date_posted=str(gateway.get("date_posted", "")),
@@ -75,7 +81,7 @@ class LinkedInMCPConfig:
             job_type=str(gateway.get("job_type", "")),
             experience_level=str(gateway.get("experience_level", "")),
             expired_markers=tuple(str(m).lower() for m in auth.get("expired_markers", [])),
-            user_data_dir=str(_env_or(auth.get("user_data_dir", ""), "user_data_dir")),
+            user_data_dir=str(_env_or(auth.get("user_data_dir", ""), "user_data_dir", effective)),
             login_headed=bool(auth.get("login_headed", True)),
             login_timeout_seconds=float(auth.get("login_timeout_seconds", 3600.0)),
             status_timeout_seconds=float(auth.get("status_timeout_seconds", 300.0)),
@@ -133,8 +139,35 @@ def _resolve_command(value: str) -> str:
     return str(_REPO_ROOT / path)
 
 
-def _env_or(toml_value: str, key: str) -> str:
+def _effective_env(
+    env: dict[str, str] | None = None, env_file: Path | None = None
+) -> dict[str, str]:
+    """Return the effective linkedin MCP environment without mutating the OS.
+
+    Starts from ``env`` (the real ``os.environ`` by default), then fills any
+    missing ``LINKEDIN_MCP_*`` keys from the gitignored repo ``.env``. Values
+    already present win, so a developer can override the machine defaults in
+    their environment when needed.
+    """
+    result = dict(os.environ) if env is None else dict(env)
+    if env_file is None:
+        env_file = _REPO_ROOT / ".env"
+    if not env_file.is_file():
+        return result
+    expected = set(_LINKEDIN_MCP_ENV.values())
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, _, value = stripped.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if key in expected and key not in result:
+            result[key] = value
+    return result
+
+
+def _env_or(toml_value: str, key: str, env: dict[str, str]) -> str:
     """Return the environment override for ``key`` when set, else ``toml_value``."""
-    env_name = _LINKEDIN_MCP_ENV[key]
-    value = os.environ.get(env_name)
+    value = env.get(_LINKEDIN_MCP_ENV[key])
     return value if value is not None else str(toml_value)
