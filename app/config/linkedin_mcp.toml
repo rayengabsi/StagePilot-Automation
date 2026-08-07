@@ -10,8 +10,20 @@
 # Relative paths are resolved against this repository. Tilde (~) is expanded.
 
 [gateway]
-command = "C:/Projects/linkedin-mcp-server/.venv/Scripts/python.exe"
-cwd = "C:/Projects/linkedin-mcp-server"
+# Where to find the LinkedIn MCP server. NEVER hard-code a machine-specific
+# absolute path here. The default assumes `linkedin_mcp_server` is importable
+# from the Python environment running StagePilot (cross-platform). Point the
+# server at a different interpreter/profile by setting the environment
+# variables below (they override the TOML at runtime):
+#
+#   LINKEDIN_MCP_COMMAND      e.g. C:/Projects/linkedin-mcp-server/.venv/Scripts/python.exe
+#   LINKEDIN_MCP_CWD          e.g. C:/Projects/linkedin-mcp-server
+#   LINKEDIN_MCP_MODULE
+#   LINKEDIN_MCP_LOG_LEVEL
+#   LINKEDIN_MCP_USER_DATA_DIR
+#
+command = "python"
+cwd = "."
 module = "linkedin_mcp_server"
 transport = "stdio"
 timeout_seconds = 90.0

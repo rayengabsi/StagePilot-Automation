@@ -9,6 +9,17 @@ from pathlib import Path
 LINKEDIN_MCP_CONFIG_PATH = Path(__file__).parent / "linkedin_mcp.toml"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# Environment variables that override the TOML values so the LinkedIn MCP
+# server location is never hard-coded to one developer's machine. Setting these
+# keeps every OS working without editing code.
+_LINKEDIN_MCP_ENV = {
+    "command": "LINKEDIN_MCP_COMMAND",
+    "cwd": "LINKEDIN_MCP_CWD",
+    "module": "LINKEDIN_MCP_MODULE",
+    "log_level": "LINKEDIN_MCP_LOG_LEVEL",
+    "user_data_dir": "LINKEDIN_MCP_USER_DATA_DIR",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class LinkedInMCPConfig:
@@ -50,13 +61,13 @@ class LinkedInMCPConfig:
         notify = raw.get("notify", {})
         lifecycle = gateway.get("lifecycle", {})
         return cls(
-            command=_resolve(gateway["command"]),
-            cwd=_resolve(gateway.get("cwd", ".")),
-            module=str(gateway.get("module", "linkedin_mcp_server")),
+            command=_resolve_command(_env_or(gateway["command"], "command")),
+            cwd=_resolve(_env_or(gateway.get("cwd", "."), "cwd")),
+            module=str(_env_or(gateway.get("module", "linkedin_mcp_server"), "module")),
             transport=str(gateway.get("transport", "stdio")),
             timeout_seconds=float(gateway.get("timeout_seconds", 90.0)),
             tool_timeout_seconds=float(gateway.get("tool_timeout_seconds", 180.0)),
-            log_level=str(gateway.get("log_level", "WARNING")),
+            log_level=str(_env_or(gateway.get("log_level", "WARNING"), "log_level")),
             max_jobs=int(gateway.get("max_jobs", 8)),
             max_pages=int(gateway.get("max_pages", 3)),
             date_posted=str(gateway.get("date_posted", "")),
@@ -64,7 +75,7 @@ class LinkedInMCPConfig:
             job_type=str(gateway.get("job_type", "")),
             experience_level=str(gateway.get("experience_level", "")),
             expired_markers=tuple(str(m).lower() for m in auth.get("expired_markers", [])),
-            user_data_dir=str(auth.get("user_data_dir", "")),
+            user_data_dir=str(_env_or(auth.get("user_data_dir", ""), "user_data_dir")),
             login_headed=bool(auth.get("login_headed", True)),
             login_timeout_seconds=float(auth.get("login_timeout_seconds", 3600.0)),
             status_timeout_seconds=float(auth.get("status_timeout_seconds", 300.0)),
@@ -102,3 +113,28 @@ def _resolve(value: str) -> str:
     if not path.is_absolute():
         path = _REPO_ROOT / path
     return str(path)
+
+
+def _resolve_command(value: str) -> str:
+    """Resolve a server command without making bare executables repo-relative.
+
+    An absolute path (or one with a separator) is resolved against the
+    repository root, but a plain executable name such as ``python`` or ``uvx``
+    is left untouched so it is found on ``PATH`` on every OS.
+    """
+    text = os.path.expanduser(value.strip())
+    if not text:
+        return text
+    if "/" not in text and "\\" not in text and not text.startswith((".", "~")):
+        return text
+    path = Path(text)
+    if path.is_absolute():
+        return str(path)
+    return str(_REPO_ROOT / path)
+
+
+def _env_or(toml_value: str, key: str) -> str:
+    """Return the environment override for ``key`` when set, else ``toml_value``."""
+    env_name = _LINKEDIN_MCP_ENV[key]
+    value = os.environ.get(env_name)
+    return value if value is not None else str(toml_value)

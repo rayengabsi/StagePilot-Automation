@@ -17,8 +17,8 @@ from app.infrastructure.linkedin_mcp.auth import (
 
 def _config(**overrides: object) -> LinkedInMCPConfig:
     fields: dict[str, object] = {
-        "command": "C:/venv/python.exe",
-        "cwd": "C:/server",
+        "command": "python",
+        "cwd": ".",
         "module": "linkedin_mcp_server",
         "transport": "stdio",
         "timeout_seconds": 90.0,
@@ -51,11 +51,11 @@ def _config(**overrides: object) -> LinkedInMCPConfig:
 
 
 def test_command_builds_status_args() -> None:
-    client = LinkedInMCPAuthClient(_config(user_data_dir="C:/profile", log_level="DEBUG"))
+    client = LinkedInMCPAuthClient(_config(user_data_dir="profile", log_level="DEBUG"))
     args = client._command("--status")
-    assert args[:4] == ["C:/venv/python.exe", "-m", "linkedin_mcp_server", "--status"]
+    assert args[:4] == ["python", "-m", "linkedin_mcp_server", "--status"]
     assert "--log-level" in args and "DEBUG" in args
-    assert "--user-data-dir" in args and "C:/profile" in args
+    assert "--user-data-dir" in args and "profile" in args
 
 
 def test_command_omits_user_data_dir_when_empty() -> None:
