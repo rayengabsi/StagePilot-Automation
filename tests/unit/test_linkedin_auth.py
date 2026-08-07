@@ -165,6 +165,39 @@ def test_session_status_authenticated(tmp_path: Path) -> None:
     assert client.session_status() is LinkedInSessionStatus.AUTHENTICATED
 
 
+def test_session_not_authenticated_when_profile_dir_inaccessible(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Files exist but the profile dir's DACL denies the owner (WinError 5)."""
+    profile = _build_session_tree(tmp_path)
+    client = LinkedInMCPAuthClient(_config(user_data_dir=str(profile)))
+
+    def _denied(path: Path) -> object:
+        raise PermissionError(f"[WinError 5] Access is denied: '{path}'")
+
+    monkeypatch.setattr(auth_module.os, "scandir", _denied)
+
+    assert client.is_authenticated() is False
+    assert client.session_status() is LinkedInSessionStatus.NEEDS_LOGIN
+
+
+def test_session_detail_reports_unreadable_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    profile = _build_session_tree(tmp_path)
+
+    def _denied(path: Path) -> object:
+        raise PermissionError(f"[WinError 5] Access is denied: '{path}'")
+
+    monkeypatch.setattr(auth_module.os, "scandir", _denied)
+
+    ready, detail = auth_module._session_ready(_config(user_data_dir=str(profile)))
+
+    assert ready is False
+    assert detail["profile_readable"] == "False"
+    assert detail["ready"] == "False"
+
+
 def test_session_status_error_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     def _boom(config: LinkedInMCPConfig) -> tuple[bool, dict[str, str]]:
         raise OSError("boom")

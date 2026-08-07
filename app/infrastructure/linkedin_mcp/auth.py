@@ -110,6 +110,25 @@ def _session_files(config: LinkedInMCPConfig) -> tuple[Path, Path, Path]:
     return profile, auth_root / _COOKIE_FILE, auth_root / _SOURCE_STATE_FILE
 
 
+def _profile_directory_readable(profile: Path) -> bool:
+    """Return True when the profile directory can be opened for enumeration.
+
+    The headless Chromium opens this directory as its user-data-dir for every
+    real search, so "do the session files exist" is not enough — the directory
+    must actually be accessible to the owner. A protected owner-only DACL
+    (``windows_acl``) leaves the directory listable by the owner but hard for
+    anyone else, so a directory whose DACL belongs to a different account (an
+    earlier elevated/system context) raises an access-denied here, exactly as it
+    will for Chromium. Raises nothing: an unreadable tree reports False rather
+    than crashing the caller.
+    """
+    try:
+        with os.scandir(profile):
+            return True
+    except OSError:
+        return False
+
+
 def _session_ready(config: LinkedInMCPConfig) -> tuple[bool, dict[str, str]]:
     """Mirror ``linkedin_mcp_server.bootstrap._auth_ready`` on the persisted files.
 
@@ -117,11 +136,18 @@ def _session_ready(config: LinkedInMCPConfig) -> tuple[bool, dict[str, str]]:
     for the debug log. Raises nothing; an unreadable tree reports ``ready`` as
     False instead of crashing the caller.
 
-    The profile directory is only required to *exist*: the server hardens its
-    ACL so the directory itself refuses directory listing (Windows), even to the
-    owner, while the two sibling auth files stay readable by name. Checking
-    those files is therefore the reliable signal, and does not need to enumerate
-    the profile directory.
+    The profile directory is a required, and it must be usable by the browser.
+    The server writes the session into ``<profile-parent>/cookies.json`` plus
+    ``source-state.json`` and a populated browser profile directory. The files
+    prove a login *happened*, but the profile directory is what Chromium opens
+    as its user-data-dir when a search actually runs. On Windows the server
+    gives that directory an owner-only DACL via ``windows_acl``, so a usable
+    profile is always listable by the owner. If the directory's DACL was instead
+    written by (or now belongs to) another account, enumeration raises a
+    WinError 5/access-denied — even though the two sibling auth files remain
+    readable by name. Reporting "authenticated" then would send every scheduled
+    search straight into a PermissionError. So readiness is NOT proven until the
+    profile directory is openable too.
     """
     try:
         profile, cookies, source_state = _session_files(config)
@@ -141,9 +167,13 @@ def _session_ready(config: LinkedInMCPConfig) -> tuple[bool, dict[str, str]]:
                 ready = isinstance(cookie_data, list) and len(cookie_data) > 0
             except (OSError, ValueError):
                 ready = False
+        profile_readable = _profile_directory_readable(profile) if ready else "-"
+        if ready and not profile_readable:
+            ready = False
         detail = {
             "profile": str(profile),
             "profile_exists": str(profile_ok),
+            "profile_readable": str(profile_readable),
             "cookie_file": str(cookies),
             "cookie_ready": str(cookies_ok),
             "source_state": str(source_state),
