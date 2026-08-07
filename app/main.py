@@ -3,9 +3,13 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
 from app.cli.commands import run_cli
 from app.config.logging import configure_logging
 from app.config.settings import Settings, get_settings
+
+load_dotenv()
 
 
 @dataclass(frozen=True, slots=True)

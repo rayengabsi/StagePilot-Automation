@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+from dotenv import load_dotenv
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,8 +28,9 @@ class TelegramConfig:
         bot = data.get("bot", {})
         formatting = data.get("formatting", {})
         errors = data.get("errors", {})
+        token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip() or bot.get("token", "")
         return cls(
-            bot_token=bot.get("token", ""),
+            bot_token=token,
             allowed_chat_ids=bot.get("allowed_chat_ids", []),
             admin_users=bot.get("admin_users", []),
             max_message_length=formatting.get("max_message_length", 4096),
@@ -45,7 +49,13 @@ class TelegramConfig:
 
 @lru_cache
 def get_telegram_config() -> TelegramConfig:
-    """Load Telegram configuration from config/telegram.toml."""
+    """Load Telegram configuration.
+
+    The bot token is a secret and is sourced from the ``TELEGRAM_BOT_TOKEN``
+    environment variable (loaded from the gitignored ``.env``) rather than a
+    committed TOML value. Chat IDs and formatting remain in ``config/telegram.toml``.
+    """
+    load_dotenv()
     config_path = Path("config/telegram.toml")
     if config_path.exists():
         raw = config_path.read_text(encoding="utf-8")

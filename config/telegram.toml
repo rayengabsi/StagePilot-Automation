@@ -1,5 +1,7 @@
 [bot]
-token = "8828143955:AAHc1zgnQoLgmcKtGRSy7-lOxrmVTdx00V0"
+# The bot token is a secret and is sourced from the TELEGRAM_BOT_TOKEN env var
+# (see app/config/telegram_config.py); do not commit a real token here.
+token = ""
 allowed_chat_ids = [5165039866]
 admin_users = [5165039866]
 
