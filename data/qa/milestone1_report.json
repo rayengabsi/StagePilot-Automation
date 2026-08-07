@@ -1,0 +1,91 @@
+{
+  "milestone": 1,
+  "checks": [
+    {
+      "subsystem": "config_loading",
+      "status": "PASS",
+      "detail": "env=local db=localhost:3306/stagepilot linkedin_cmd=C:\\Projects\\linkedin-mcp-server\\.venv\\Scripts\\python.exe linkedin_cwd=C:\\Projects\\linkedin-mcp-server telegram_enabled=True telegram_chats=1",
+      "notes": []
+    },
+    {
+      "subsystem": "database",
+      "status": "PASS",
+      "detail": "mysql=8.0.46 tables=31 write_read_roundtrip=True",
+      "notes": []
+    },
+    {
+      "subsystem": "linkedin_auth",
+      "status": "PASS",
+      "detail": "persisted session is authenticated",
+      "notes": []
+    },
+    {
+      "subsystem": "mcp_lifecycle",
+      "status": "BLOCKED",
+      "detail": "real stdio handshake unavailable in this headless shell",
+      "notes": [
+        "command=C:\\Projects\\linkedin-mcp-server\\.venv\\Scripts\\python.exe",
+        "args=['-m', 'linkedin_mcp_server', '--transport', 'stdio', '--log-level', 'WARNING']",
+        "cwd=C:\\Projects\\linkedin-mcp-server",
+        "evidence: server process not responding within 90s here; `--status` hangs too (chromium cannot boot headless)"
+      ]
+    },
+    {
+      "subsystem": "telegram_connector",
+      "status": "PASS",
+      "detail": "getMe ok (@StagePilot_bot); no message sent",
+      "notes": []
+    },
+    {
+      "subsystem": "telegram_formatting",
+      "status": "PASS",
+      "detail": "rendered 304 chars",
+      "notes": []
+    },
+    {
+      "subsystem": "notification_dedup",
+      "status": "PASS",
+      "detail": "mark/is_notified/idempotent round-trip on real JSON state",
+      "notes": []
+    },
+    {
+      "subsystem": "resume_parsing",
+      "status": "BLOCKED",
+      "detail": "no real CV asset present",
+      "notes": [
+        "data/resumes/master is empty; real parser verification needs a real resume"
+      ]
+    },
+    {
+      "subsystem": "profile_generation",
+      "status": "BLOCKED",
+      "detail": "no real master profile present",
+      "notes": [
+        "profile generation needs a real parsed CV / master profile"
+      ]
+    },
+    {
+      "subsystem": "matching_recommendation",
+      "status": "BLOCKED",
+      "detail": "real scoring requires a real master profile and real LinkedIn jobs",
+      "notes": [
+        "engines are deterministic and covered by the unit suite; real-data scoring is verified end-to-end in QA M2"
+      ]
+    },
+    {
+      "subsystem": "linkedin_job_retrieval",
+      "status": "BLOCKED",
+      "detail": "real search needs a headed authenticated Chromium in a desktop session",
+      "notes": [
+        "session is authenticated; browser cannot boot in this headless shell",
+        "real jobs are verified in QA M2 on the desktop"
+      ]
+    },
+    {
+      "subsystem": "cli",
+      "status": "PASS",
+      "detail": "stagepilot doctor rc=0",
+      "notes": []
+    }
+  ]
+}
