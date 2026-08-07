@@ -590,9 +590,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ar_snooze_parser.add_argument("--actor", type=str, default="cli", help="Actor name.")
     ar_snooze_parser.set_defaults(handler=_handle_application_reminder_snooze)
 
-    agent_parser = subparsers.add_parser(
-        "agent", help="Chat with the StagePilot Career Agent."
-    )
+    agent_parser = subparsers.add_parser("agent", help="Chat with the StagePilot Career Agent.")
     agent_parser.add_argument(
         "--message",
         type=str,
@@ -606,9 +604,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     agent_parser.set_defaults(handler=_handle_agent)
 
-    linkedin_parser = subparsers.add_parser(
-        "linkedin", help="LinkedIn MCP pipeline commands."
-    )
+    linkedin_parser = subparsers.add_parser("linkedin", help="LinkedIn MCP pipeline commands.")
     linkedin_subparsers = linkedin_parser.add_subparsers(dest="linkedin_command")
 
     linkedin_match = linkedin_subparsers.add_parser(
@@ -1274,9 +1270,7 @@ def _handle_linkedin_status(_args: argparse.Namespace, _settings: Settings) -> i
 
     config = get_linkedin_mcp_config()
     auth = LinkedInMCPAuthClient(config)
-    state = auth.session_status(
-        timeout=getattr(config, "status_probe_timeout_seconds", 20.0)
-    )
+    state = auth.session_status(timeout=getattr(config, "status_probe_timeout_seconds", 20.0))
 
     print(
         json.dumps(
@@ -1346,9 +1340,7 @@ def _handle_linkedin_notify(args: argparse.Namespace, settings: Settings) -> int
 
     config = get_linkedin_mcp_config()
     auth = LinkedInMCPAuthClient(config)
-    state = auth.session_status(
-        timeout=getattr(config, "status_probe_timeout_seconds", 20.0)
-    )
+    state = auth.session_status(timeout=getattr(config, "status_probe_timeout_seconds", 20.0))
     if state is LinkedInSessionStatus.AUTHENTICATED:
         authenticated = True
     elif state is LinkedInSessionStatus.NEEDS_LOGIN:
@@ -1376,8 +1368,7 @@ def _handle_linkedin_notify(args: argparse.Namespace, settings: Settings) -> int
         try:
             if not auth.login():
                 print(
-                    "❌ Login did not complete. Run `stagepilot linkedin login` "
-                    "and try again.",
+                    "❌ Login did not complete. Run `stagepilot linkedin login` and try again.",
                     file=sys.stderr,
                 )
                 return 2

@@ -26,9 +26,7 @@ def _fake_session() -> MagicMock:
     return session
 
 
-def _agent(
-    session: MagicMock | None = None, services: dict | None = None
-) -> CareerAgent:
+def _agent(session: MagicMock | None = None, services: dict | None = None) -> CareerAgent:
     return CareerAgent(session=session or _fake_session(), services=services or {})
 
 
@@ -117,9 +115,7 @@ def test_profile_status() -> None:
 
 def test_profile_status_no_profile_offers_hint() -> None:
     fake = SimpleNamespace(
-        get_current_profile=MagicMock(
-            side_effect=ProfileNotFoundError("No active profile found.")
-        ),
+        get_current_profile=MagicMock(side_effect=ProfileNotFoundError("No active profile found.")),
     )
     response = _agent(services={"profile": fake}).handle("show profile")
     assert not response.success

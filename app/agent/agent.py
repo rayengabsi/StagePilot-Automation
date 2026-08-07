@@ -359,9 +359,7 @@ class CareerAgent:
         top_n = self._extract_top_n(message)
         recommendations = self._recommendation_service().list_recommendations(top_n=top_n)
         data = self._recommendation_data(recommendations)
-        reasoning = (
-            "Loaded the persisted recommendations from the previous run.",
-        )
+        reasoning = ("Loaded the persisted recommendations from the previous run.",)
         message_text = self._format_recommendations(recommendations, listing=True)
         return self._ok(AgentIntent.LIST_RECOMMENDATIONS, message_text, data, reasoning)
 
@@ -581,9 +579,7 @@ class CareerAgent:
             data.append(entry)
         return data
 
-    def _format_recommendations(
-        self, recommendations: list[Any], listing: bool = False
-    ) -> str:
+    def _format_recommendations(self, recommendations: list[Any], listing: bool = False) -> str:
         if not recommendations:
             return (
                 "There are no recommendations right now. Run `discover jobs` to fetch postings "
@@ -657,4 +653,3 @@ class CareerAgent:
             value = match.group(1).strip()
             return value or None
         return None
-

@@ -68,15 +68,9 @@ class LinkedInMCPConfig:
             login_headed=bool(auth.get("login_headed", True)),
             login_timeout_seconds=float(auth.get("login_timeout_seconds", 3600.0)),
             status_timeout_seconds=float(auth.get("status_timeout_seconds", 300.0)),
-            status_probe_timeout_seconds=float(
-                auth.get("status_probe_timeout_seconds", 20.0)
-            ),
-            startup_timeout_seconds=float(
-                lifecycle.get("startup_timeout_seconds", 90.0)
-            ),
-            shutdown_timeout_seconds=float(
-                lifecycle.get("shutdown_timeout_seconds", 15.0)
-            ),
+            status_probe_timeout_seconds=float(auth.get("status_probe_timeout_seconds", 20.0)),
+            startup_timeout_seconds=float(lifecycle.get("startup_timeout_seconds", 90.0)),
+            shutdown_timeout_seconds=float(lifecycle.get("shutdown_timeout_seconds", 15.0)),
             ready_poll_seconds=float(lifecycle.get("ready_poll_seconds", 2.0)),
             state_file=Path(_resolve(notify.get("state_file", "data/linkedin/notified.json"))),
             max_matching_skills=int(notify.get("max_matching_skills", 5)),

@@ -16,9 +16,7 @@ def _service(
     monkeypatch.setattr(
         "app.infrastructure.telegram.notification.get_telegram_config", lambda: config
     )
-    monkeypatch.setattr(
-        "app.infrastructure.telegram.notification.get_settings", lambda: object()
-    )
+    monkeypatch.setattr("app.infrastructure.telegram.notification.get_settings", lambda: object())
     return TelegramNotificationService()
 
 

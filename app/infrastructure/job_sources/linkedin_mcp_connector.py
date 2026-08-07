@@ -72,9 +72,7 @@ class LinkedInMCPConnector(BaseJobSourceConnector):
     def fetch(self, source: JobSourceConfig) -> list[DiscoveredJob]:
         """Start the MCP server, search, fetch details, and normalize jobs."""
         client = self._build_client(source)
-        search_result = self._with_retry(
-            lambda: self._search(client, source)
-        )
+        search_result = self._with_retry(lambda: self._search(client, source))
         job_ids = _extract_job_ids(search_result)
 
         if not job_ids:

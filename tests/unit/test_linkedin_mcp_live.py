@@ -47,7 +47,7 @@ def test_linkedin_mcp_fetches_jobs_end_to_end() -> None:
     source = _server_source()
     jobs = connector.fetch(source)
     assert jobs
-    retrieved = sorted(jobs, key=lambda j: (j.external_id or ""))
+    retrieved = sorted(jobs, key=lambda j: j.external_id or "")
     assert any(job.external_id == "101" for job in retrieved)
     sample = next(j for j in retrieved if j.external_id == "101")
     assert "Software Engineer Intern" in sample.title

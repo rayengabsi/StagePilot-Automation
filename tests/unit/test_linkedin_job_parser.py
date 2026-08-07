@@ -148,9 +148,7 @@ def test_parses_posted_relative_days() -> None:
 
 
 def test_parses_posted_today() -> None:
-    job = _parse(
-        "\n".join(["London", "Engineer", "Acme", "today", "About the job", "Ship code."])
-    )
+    job = _parse("\n".join(["London", "Engineer", "Acme", "today", "About the job", "Ship code."]))
     assert job.posted_at == _NOW
     assert job.posted_age == "today"
 

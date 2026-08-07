@@ -51,9 +51,7 @@ def _config(**overrides: object) -> LinkedInMCPConfig:
 
 
 def test_command_builds_status_args() -> None:
-    client = LinkedInMCPAuthClient(
-        _config(user_data_dir="C:/profile", log_level="DEBUG")
-    )
+    client = LinkedInMCPAuthClient(_config(user_data_dir="C:/profile", log_level="DEBUG"))
     args = client._command("--status")
     assert args[:4] == ["C:/venv/python.exe", "-m", "linkedin_mcp_server", "--status"]
     assert "--log-level" in args and "DEBUG" in args

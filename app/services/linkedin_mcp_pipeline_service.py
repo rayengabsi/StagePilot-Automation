@@ -148,9 +148,7 @@ class LinkedInMCPPipelineService:
 
         recommendations = RecommendationService(session=self._session).recommend(top_n=top_n)
         cutoff = self._cutoff()
-        results = tuple(
-            self._to_result(rec, cutoff) for rec in recommendations
-        )
+        results = tuple(self._to_result(rec, cutoff) for rec in recommendations)
         above = sum(1 for item in results if item.above_threshold)
         return LinkedInMCPPipelineResult(
             source_id=source.id,
