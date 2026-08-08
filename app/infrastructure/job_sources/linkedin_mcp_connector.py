@@ -24,7 +24,11 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any, ClassVar, TypeVar
 
-from app.config.linkedin_mcp_config import LinkedInMCPConfig, get_linkedin_mcp_config
+from app.config.linkedin_mcp_config import (
+    LinkedInMCPConfig,
+    get_linkedin_mcp_config,
+    playwright_browsers_path,
+)
 from app.domain.jobs.entities import DiscoveredJob, JobSourceConfig, ProviderHealth
 from app.domain.jobs.enums import JobSourceType
 from app.domain.jobs.errors import LinkedInSessionExpiredError
@@ -227,10 +231,15 @@ class LinkedInMCPConnector(BaseJobSourceConnector):
         env = config.get("server_env")
         if env is not None and not isinstance(env, dict):
             raise LinkedInMCPError("server_env must be a JSON object")
+        child_env = {str(k): str(v) for k, v in env.items()} if env else {}
+        # The real server re-uses the per-user browser cache instead of
+        # re-downloading Chromium beside the profile and never falling into a
+        # poisoned sibling directory.
+        child_env.setdefault("PLAYWRIGHT_BROWSERS_PATH", playwright_browsers_path())
         return LinkedInMCPClient(
             command=command,
             args=_server_args(config, self._server),
-            env={str(k): str(v) for k, v in env.items()} if env else None,
+            env=child_env or None,
             cwd=str(config.get("server_cwd") or self._server.cwd),
             timeout_seconds=_as_float(
                 config.get("timeout_seconds"), default=self._server.timeout_seconds

@@ -64,12 +64,14 @@ expired_markers = [
 # uses its own default (~/.linkedin-mcp/profile). Provided so the profile can
 # be relocated or shared.
 #
-# Defaults to a fresh directory: a previously used profile can end up owned by
-# another account (an elevated or service context) and return WinError 5
-# (Access is denied) to the authenticated user, which silently breaks every
-# headless search. A fresh path is always recreated and owned by the user at
-# the next `linkedin login`.
-user_data_dir = "~/.linkedin-mcp/profile-active"
+# Defaults to a dedicated tree under the user's home rather than the server's
+# packed ~/.linkedin-mcp: a previously used profile root can contain
+# directories owned by another account (an elevated or service context) that
+# deny even the authenticated user (WinError 5) — not only the profile but the
+# trace root the server writes to on *every* boot, which silently froze the
+# `--login` flow before it ever opened a browser. A fresh root is always
+# created and owned by the user at the next `linkedin login`.
+user_data_dir = "~/.stagepilot/linkedin-mcp/profile"
 
 # Launch the interactive login with a visible browser window so the user can
 # sign in. The resulting profile is saved and reused on later runs.
@@ -92,6 +94,23 @@ status_probe_timeout_seconds = 20
 startup_timeout_seconds = 90   # overall deadline to reach "ready"
 shutdown_timeout_seconds = 15  # grace period before forcing the process to end
 ready_poll_seconds = 2         # interval between readiness probes
+
+# Browser bootstrap: the real server downloads the Patchright Chromium browser
+# in the background on first use and politely tells every tool "setup is not
+# complete yet" until it finishes. "Server started" or a basic MCP ping is NOT
+# sufficient — search is usable only once the browser is installed. The
+# lifecycle therefore probes a gated read-only tool and treats a bootstrap
+# marker as "still warming up, keep polling" (bounded below, never a hang).
+# `bootstrap_markers` are substrings of the server's own bootstrap message, and
+# `probe_tool` is the tool exercised to ask the server whether it is usable.
+[gateway.bootstrap]
+max_wait_seconds = 900        # hard bound while waiting for browser install
+poll_seconds = 5              # interval between bootstrap probes
+probe_tool = "search_jobs"    # a read-only tool gated behind browser setup
+markers = [
+  "setup is not complete yet",
+  "downloading the patchright chromium browser",
+]
 
 [notify]
 # Persisted set of LinkedIn job ids that were already delivered to Telegram,

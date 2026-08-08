@@ -47,6 +47,10 @@ def _config(**overrides: object) -> LinkedInMCPConfig:
         "startup_timeout_seconds": 90.0,
         "shutdown_timeout_seconds": 15.0,
         "ready_poll_seconds": 2.0,
+        "bootstrap_max_wait_seconds": 900.0,
+        "bootstrap_poll_seconds": 5.0,
+        "bootstrap_probe_tool": "search_jobs",
+        "bootstrap_markers": (),
         "state_file": Path("data/linkedin/notified.json"),
         "max_matching_skills": 5,
         "max_missing_skills": 5,
@@ -74,11 +78,19 @@ def _ok(
 def _stub_spawn(monkeypatch: pytest.MonkeyPatch, result: ServerProcessResult) -> dict[str, object]:
     captured: dict[str, object] = {}
 
-    def _spawn(args: list[str], *, cwd: str, timeout: float, mode: str) -> ServerProcessResult:
+    def _spawn(
+        args: list[str],
+        *,
+        cwd: str,
+        timeout: float,
+        mode: str,
+        env: dict[str, str] | None = None,
+    ) -> ServerProcessResult:
         captured["args"] = args
         captured["cwd"] = cwd
         captured["timeout"] = timeout
         captured["mode"] = mode
+        captured["env"] = env
         return result
 
     monkeypatch.setattr(auth_module, "_spawn_server", _spawn)
@@ -116,6 +128,13 @@ def test_command_builds_login_args() -> None:
 def test_command_omits_user_data_dir_when_empty() -> None:
     client = LinkedInMCPAuthClient(_config())
     assert "--user-data-dir" not in client._command("--login")
+
+
+def test_command_expands_tilde_in_user_data_dir() -> None:
+    client = LinkedInMCPAuthClient(_config(user_data_dir="~/stagepilot/profile"))
+    args = client._command("--login")
+    index = args.index("--user-data-dir")
+    assert Path(args[index + 1]) == Path.home() / "stagepilot" / "profile"
 
 
 def test_base_arguments_include_configured_user_data_dir() -> None:

@@ -45,6 +45,10 @@ class LinkedInMCPConfig:
     startup_timeout_seconds: float
     shutdown_timeout_seconds: float
     ready_poll_seconds: float
+    bootstrap_max_wait_seconds: float
+    bootstrap_poll_seconds: float
+    bootstrap_probe_tool: str
+    bootstrap_markers: tuple[str, ...]
     state_file: Path
     max_matching_skills: int
     max_missing_skills: int
@@ -66,6 +70,7 @@ class LinkedInMCPConfig:
         retry = gateway.get("retry", {})
         notify = raw.get("notify", {})
         lifecycle = gateway.get("lifecycle", {})
+        bootstrap = gateway.get("bootstrap", {})
         return cls(
             command=_resolve_command(_env_or(gateway["command"], "command", effective)),
             cwd=_resolve(_env_or(gateway.get("cwd", "."), "cwd", effective)),
@@ -89,6 +94,12 @@ class LinkedInMCPConfig:
             startup_timeout_seconds=float(lifecycle.get("startup_timeout_seconds", 90.0)),
             shutdown_timeout_seconds=float(lifecycle.get("shutdown_timeout_seconds", 15.0)),
             ready_poll_seconds=float(lifecycle.get("ready_poll_seconds", 2.0)),
+            bootstrap_max_wait_seconds=float(bootstrap.get("max_wait_seconds", 900.0)),
+            bootstrap_poll_seconds=float(bootstrap.get("poll_seconds", 5.0)),
+            bootstrap_probe_tool=str(bootstrap.get("probe_tool", "search_jobs")),
+            bootstrap_markers=tuple(
+                str(m).lower() for m in bootstrap.get("markers", [])
+            ),
             state_file=Path(_resolve(notify.get("state_file", "data/linkedin/notified.json"))),
             max_matching_skills=int(notify.get("max_matching_skills", 5)),
             max_missing_skills=int(notify.get("max_missing_skills", 5)),
@@ -140,6 +151,26 @@ def _resolve_command(value: str) -> str:
     if path.is_absolute():
         return str(path)
     return str(_REPO_ROOT / path)
+
+
+def playwright_browsers_path() -> str:
+    """Return the directory where Patchright/Playwright browsers are installed.
+
+    The LinkedIn MCP server derives its browser cache path from the profile's
+    auth root and would otherwise re-download Chromium beside the session. This
+    resolves the standard per-user cache instead (honored by the server through
+    ``PLAYWRIGHT_BROWSERS_PATH``), avoiding both the download and any
+    ACL-poisoned sibling directory next to an old profile.
+    """
+    override = os.environ.get("LINKEDIN_MCP_BROWSERS_PATH") or os.environ.get(
+        "PLAYWRIGHT_BROWSERS_PATH"
+    )
+    if override:
+        return os.path.expanduser(override)
+    if os.name == "nt":
+        local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return str(Path(local) / "ms-playwright")
+    return str(Path.home() / ".cache" / "ms-playwright")
 
 
 def _effective_env(

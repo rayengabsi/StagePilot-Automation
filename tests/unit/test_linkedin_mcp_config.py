@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
 from app.config.linkedin_mcp_config import (
     LINKEDIN_MCP_CONFIG_PATH,
     LinkedInMCPConfig,
@@ -89,3 +90,40 @@ def test_env_file_does_not_override_real_env(tmp_path: Path) -> None:
 def test_missing_env_file_is_ignored(tmp_path: Path) -> None:
     env = _effective_env(env={"KEEP": "1"}, env_file=tmp_path / "does-not-exist.env")
     assert env == {"KEEP": "1"}
+
+
+def test_bootstrap_options_load_from_toml(tmp_path: Path) -> None:
+    config = _load(env={}, env_file=tmp_path / "empty.env")
+    assert config.bootstrap_max_wait_seconds == 900.0
+    assert config.bootstrap_poll_seconds == 5.0
+    assert config.bootstrap_probe_tool == "search_jobs"
+    assert config.bootstrap_markers
+
+
+def test_playwright_browsers_path_windows_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.config.linkedin_mcp_config import playwright_browsers_path
+
+    monkeypatch.setattr("app.config.linkedin_mcp_config.os.name", "nt")
+    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\me\AppData\Local")
+    monkeypatch.delenv("PLAYWRIGHT_BROWSERS_PATH", raising=False)
+    monkeypatch.delenv("LINKEDIN_MCP_BROWSERS_PATH", raising=False)
+
+    assert Path(playwright_browsers_path()) == Path(r"C:\Users\me\AppData\Local") / "ms-playwright"
+
+
+def test_playwright_browsers_path_windows_fallback_to_home(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.config.linkedin_mcp_config import playwright_browsers_path
+
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    monkeypatch.delenv("PLAYWRIGHT_BROWSERS_PATH", raising=False)
+    monkeypatch.delenv("LINKEDIN_MCP_BROWSERS_PATH", raising=False)
+
+    assert Path(playwright_browsers_path()) == Path.home() / "AppData" / "Local" / "ms-playwright"
+
+
+def test_playwright_browsers_path_honors_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.config.linkedin_mcp_config import playwright_browsers_path
+
+    monkeypatch.setenv("LINKEDIN_MCP_BROWSERS_PATH", "~/custom-browsers")
+
+    assert Path(playwright_browsers_path()) == Path.home() / "custom-browsers"

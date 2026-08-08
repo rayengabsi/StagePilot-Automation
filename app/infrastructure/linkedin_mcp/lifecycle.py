@@ -24,7 +24,7 @@ from collections.abc import Callable
 from enum import StrEnum
 from typing import Any, TypeVar
 
-from app.config.linkedin_mcp_config import LinkedInMCPConfig
+from app.config.linkedin_mcp_config import LinkedInMCPConfig, playwright_browsers_path
 from app.infrastructure.linkedin_mcp.client import (
     LinkedInMCPClient,
     LinkedInMCPError,
@@ -34,13 +34,31 @@ __all__ = [
     "LinkedInMCPLifecycle",
     "LinkedInMCPLifecycleError",
     "LinkedInMCPState",
+    "ProbeOutcome",
 ]
 
 logger = logging.getLogger("stagepilot.linkedin_mcp.lifecycle")
 
 ClientFactory = Callable[[], LinkedInMCPClient]
 ReadyProbe = Callable[[], bool]
+BootstrapProbe = Callable[[], "ProbeOutcome"]
 T = TypeVar("T")
+
+
+class ProbeOutcome(StrEnum):
+    """Structured result of one readiness probe.
+
+    Plain connectivity (the process is up and lists its tools) is not enough
+    for the real server: on first use it must download the Patchright Chromium
+    browser in the background, and until then every tool answers "setup is not
+    complete yet". The lifecycle distinguishes "ready to search" from "still
+    installing the browser" so it waits instead of failing, and fails cleanly
+    when the wait exceeds its bound.
+    """
+
+    READY = "ready"
+    BOOTSTRAPPING = "bootstrapping"
+    FAILED = "failed"
 
 
 class LinkedInMCPState(StrEnum):
@@ -57,7 +75,8 @@ class LinkedInMCPLifecycleError(RuntimeError):
     """Raised when the MCP server cannot be started, made ready, or stopped.
 
     Carries a machine-readable ``code`` so callers can branch on the failure
-    type (startup_timeout, startup_failed, shutdown_timeout, recovery_failed).
+    type (startup_timeout, startup_failed, bootstrap_timeout,
+    shutdown_timeout, recovery_failed).
     """
 
     def __init__(self, code: str, message: str) -> None:
@@ -87,12 +106,14 @@ class LinkedInMCPLifecycle:
         *,
         client_factory: ClientFactory | None = None,
         ready_probe: ReadyProbe | None = None,
+        bootstrap_probe: BootstrapProbe | None = None,
         timeout_seconds: float | None = None,
     ) -> None:
         """Initialize the lifecycle with its configuration and dependencies."""
         self._config = config
         self._client_factory = client_factory or self._default_client
         self._ready_probe = ready_probe
+        self._bootstrap_probe_fn = bootstrap_probe
         self._timeout_seconds = (
             config.startup_timeout_seconds if timeout_seconds is None else timeout_seconds
         )
@@ -133,12 +154,39 @@ class LinkedInMCPLifecycle:
         logger.info("LinkedIn MCP server ready")
 
     def wait_until_ready(self, timeout: float | None = None) -> None:
-        """Poll readiness until success or until ``timeout`` expires."""
+        """Poll readiness until success or until ``timeout`` expires.
+
+        Two gates, both bounded: the cheap handshake (is the process even up?)
+        and, once it responds, a gated-tool probe (is search actually usable?)
+        that treats the server's browser-bootstrap message as "still installing,
+        keep waiting" instead of a failure.
+        """
         deadline = time.monotonic() + self._effective_timeout(timeout)
+        bootstrap_waits = self._config.bootstrap_max_wait_seconds
+        bootstrap_deadline = (
+            deadline
+            if bootstrap_waits <= 0
+            else min(deadline, time.monotonic() + bootstrap_waits)
+        )
         poll = max(self._config.ready_poll_seconds, 0.1)
         while True:
             if self._probe_ready():
-                return
+                outcome = self._bootstrap_probe()
+                if outcome is ProbeOutcome.READY:
+                    return
+                if outcome is ProbeOutcome.BOOTSTRAPPING:
+                    if time.monotonic() >= bootstrap_deadline:
+                        raise LinkedInMCPLifecycleError(
+                            "bootstrap_timeout",
+                            "LinkedIn MCP browser setup did not complete within "
+                            f"{bootstrap_waits:.0f}s; search is still not usable",
+                        )
+                    time.sleep(max(self._config.bootstrap_poll_seconds, 0.1))
+                    continue
+                raise LinkedInMCPLifecycleError(
+                    "startup_failed",
+                    "LinkedIn MCP readiness probe failed; search is not usable",
+                )
             if time.monotonic() >= deadline:
                 raise LinkedInMCPLifecycleError(
                     "startup_timeout",
@@ -193,6 +241,7 @@ class LinkedInMCPLifecycle:
         return LinkedInMCPClient(
             command=self._config.command,
             args=self._config.base_arguments(),
+            env={"PLAYWRIGHT_BROWSERS_PATH": playwright_browsers_path()},
             cwd=self._config.cwd,
             timeout_seconds=self._config.tool_timeout_seconds,
         )
@@ -208,6 +257,37 @@ class LinkedInMCPLifecycle:
         if client is None:
             return False
         return client.ping(timeout=self._config.status_probe_timeout_seconds)
+
+    def _bootstrap_probe(self) -> ProbeOutcome:
+        """Ask whether the server is usable for real searches (not just up).
+
+        An injected probe wins. The default asks a gated read-only tool on the
+        current client and classifies the answer with the configured bootstrap
+        markers: "setup is not complete" means keep waiting, "session expired"
+        still means the server is usable (auth is a separate concern handled by
+        the notify preflight), and anything else is a hard failure. Fakes that
+        only implement ``ping`` are treated as ready after the handshake.
+        """
+        if self._bootstrap_probe_fn is not None:
+            return self._bootstrap_probe_fn()
+        client = self._client
+        if client is None or not hasattr(client, "call_tool"):
+            return ProbeOutcome.READY
+        try:
+            result = client.call_tool(
+                self._config.bootstrap_probe_tool,
+                {"keywords": "", "max_pages": 1},
+            )
+        except LinkedInMCPError as exc:
+            text = str(exc).lower()
+            if any(marker in text for marker in self._config.bootstrap_markers):
+                return ProbeOutcome.BOOTSTRAPPING
+            if any(marker in text for marker in self._config.expired_markers):
+                return ProbeOutcome.READY
+            return ProbeOutcome.FAILED
+        if isinstance(result, dict):
+            return ProbeOutcome.READY
+        return ProbeOutcome.FAILED
 
     def _stop(self) -> None:
         """Best-effort teardown during a failed start (no orphan processes)."""

@@ -15,6 +15,7 @@ from app.infrastructure.linkedin_mcp.lifecycle import (
     LinkedInMCPLifecycle,
     LinkedInMCPLifecycleError,
     LinkedInMCPState,
+    ProbeOutcome,
 )
 
 
@@ -35,6 +36,11 @@ def _config(**overrides: object) -> SimpleNamespace:
         "shutdown_timeout_seconds": 1.0,
         "ready_poll_seconds": 0.0,
         "status_probe_timeout_seconds": 1.0,
+        "bootstrap_max_wait_seconds": 5.0,
+        "bootstrap_poll_seconds": 0.0,
+        "bootstrap_probe_tool": "search_jobs",
+        "bootstrap_markers": ("setup is not complete yet",),
+        "expired_markers": ("session expired",),
         "command": "python",
         "cwd": ".",
     }
@@ -160,3 +166,122 @@ def test_restart_noop_preserves_state_when_running() -> None:
     lc.start()
     lc.restart()
     assert lc.state is LinkedInMCPState.READY
+
+
+# -- browser-bootstrap readiness --------------------------------------------
+
+
+def _bootstrap_lifecycle(
+    *,
+    probe_calls: dict[str, int],
+    outcomes: list[ProbeOutcome],
+    **overrides: object,
+) -> LinkedInMCPLifecycle:
+    """Build a lifecycle with injected probes; both probes always succeed."""
+
+    def bootstrap_probe() -> ProbeOutcome:
+        probe_calls["n"] += 1
+        if outcomes:
+            return outcomes.pop(0)
+        return ProbeOutcome.READY
+
+    return LinkedInMCPLifecycle(
+        _config(**overrides),
+        ready_probe=lambda: True,
+        bootstrap_probe=bootstrap_probe,
+        client_factory=lambda: None,
+    )
+
+
+def test_startup_waits_through_browser_bootstrap_then_readies() -> None:
+    calls: dict[str, int] = {"n": 0}
+    lc = _bootstrap_lifecycle(
+        probe_calls=calls,
+        outcomes=[ProbeOutcome.BOOTSTRAPPING, ProbeOutcome.BOOTSTRAPPING],
+        bootstrap_poll_seconds=0.01,
+    )
+
+    lc.start()
+
+    assert lc.state is LinkedInMCPState.READY
+    assert calls["n"] >= 3
+    assert lc.is_running() is True
+
+
+def test_startup_fails_cleanly_when_bootstrap_exceeds_bound() -> None:
+    calls: dict[str, int] = {"n": 0}
+    lc = _bootstrap_lifecycle(
+        probe_calls=calls,
+        outcomes=[ProbeOutcome.BOOTSTRAPPING] * 100,
+        bootstrap_poll_seconds=0.01,
+        bootstrap_max_wait_seconds=0.05,
+    )
+
+    with pytest.raises(LinkedInMCPLifecycleError) as excinfo:
+        lc.start()
+
+    assert excinfo.value.code == "bootstrap_timeout"
+    assert lc.state is LinkedInMCPState.ERROR
+    assert lc._client is None
+
+
+def test_startup_fails_when_bootstrap_probe_reports_failure() -> None:
+    calls: dict[str, int] = {"n": 0}
+    lc = _bootstrap_lifecycle(
+        probe_calls=calls,
+        outcomes=[ProbeOutcome.FAILED],
+    )
+
+    with pytest.raises(LinkedInMCPLifecycleError) as excinfo:
+        lc.start()
+
+    assert excinfo.value.code == "startup_failed"
+    assert lc.state is LinkedInMCPState.ERROR
+
+
+class _ProbeClient:
+    """Minimal client whose ``call_tool`` emits one canned behaviour."""
+
+    def __init__(self, behaviour: str) -> None:
+        self.behaviour = behaviour
+
+    def ping(self, timeout: float | None) -> bool:
+        return True
+
+    def call_tool(self, name: str, arguments: dict[str, object] | None = None) -> object:
+        if self.behaviour == "bootstrapping":
+            raise LinkedInMCPError(
+                "LinkedIn setup is not complete yet: the server is downloading the "
+                "Patchright Chromium browser in the background"
+            )
+        if self.behaviour == "expired":
+            raise LinkedInMCPError("session expired, please relogin")
+        if self.behaviour == "boom":
+            raise LinkedInMCPError("unexpected server error")
+        return {"job_ids": ["101"]}
+
+
+def _probe_client_lifecycle(behaviour: str) -> LinkedInMCPLifecycle:
+    lc = LinkedInMCPLifecycle(_config(), client_factory=lambda: _ProbeClient(behaviour))
+    lc._client = _ProbeClient(behaviour)
+    return lc
+
+
+def test_default_bootstrap_probe_retries_on_browser_setup_marker() -> None:
+    lc = _probe_client_lifecycle("bootstrapping")
+    assert lc._bootstrap_probe() is ProbeOutcome.BOOTSTRAPPING
+
+
+def test_default_bootstrap_probe_ready_on_successful_search() -> None:
+    lc = _probe_client_lifecycle("ok")
+    assert lc._bootstrap_probe() is ProbeOutcome.READY
+
+
+def test_default_bootstrap_probe_ready_when_session_expired() -> None:
+    lc = _probe_client_lifecycle("expired")
+    assert lc._bootstrap_probe() is ProbeOutcome.READY
+
+
+def test_default_bootstrap_probe_fails_on_other_errors() -> None:
+    lc = _probe_client_lifecycle("boom")
+    assert lc._bootstrap_probe() is ProbeOutcome.FAILED

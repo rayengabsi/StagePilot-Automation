@@ -59,6 +59,23 @@ def test_normalize_returns_none_without_title_or_url() -> None:
     assert connector.normalize({"url": "https://x"}, _source_config()) is None
 
 
+def test_build_client_injects_playwright_browsers_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The spawned MCP server re-uses the installed browser cache, never a fresh download."""
+    import app.infrastructure.job_sources.linkedin_mcp_connector as connector_module
+
+    monkeypatch.setattr(
+        connector_module, "playwright_browsers_path", lambda: "C:/cache/ms-playwright"
+    )
+    client = _job_connector()._build_client(
+        _source_config(server_env={"FOO": "bar"})
+    )
+    assert client._params.env is not None
+    assert client._params.env["PLAYWRIGHT_BROWSERS_PATH"] == "C:/cache/ms-playwright"
+    assert client._params.env["FOO"] == "bar"
+
+
 def test_normalize_handles_parsed_payload_shape() -> None:
     connector = _job_connector()
     job = connector.normalize(

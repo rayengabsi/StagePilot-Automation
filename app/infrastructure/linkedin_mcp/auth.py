@@ -38,7 +38,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from app.config.linkedin_mcp_config import LinkedInMCPConfig
+from app.config.linkedin_mcp_config import (
+    LinkedInMCPConfig,
+    playwright_browsers_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +194,7 @@ def _spawn_server(
     cwd: str,
     timeout: float,
     mode: str,
+    env: dict[str, str] | None = None,
 ) -> ServerProcessResult:
     """Run a server one-shot to *files* and return its outcome.
 
@@ -206,6 +210,7 @@ def _spawn_server(
     flags = 0
     if os.name == "nt":
         flags = subprocess.CREATE_NO_WINDOW
+    child_env = {**os.environ, **(env or {})}
     with tempfile.TemporaryDirectory(prefix="stagepilot-linkedin-") as tmp:
         stdout_path = Path(tmp) / "stdout.log"
         stderr_path = Path(tmp) / "stderr.log"
@@ -222,6 +227,7 @@ def _spawn_server(
                 proc = subprocess.Popen(  # noqa: S603 - command from trusted config
                     [str(a) for a in args],
                     cwd=cwd,
+                    env=child_env,
                     stdin=subprocess.DEVNULL,
                     stdout=stdout_file,
                     stderr=stderr_file,
@@ -335,6 +341,7 @@ class LinkedInMCPAuthClient(LinkedInSessionProvider):
             cwd=self._config.cwd,
             timeout=self._config.login_timeout_seconds,
             mode="login",
+            env={"PLAYWRIGHT_BROWSERS_PATH": playwright_browsers_path()},
         )
         if not result.launched:
             raise LinkedInAuthError(f"LinkedIn MCP command not found: {args[0]}")
@@ -357,5 +364,5 @@ class LinkedInMCPAuthClient(LinkedInSessionProvider):
         if self._config.log_level:
             args.extend(["--log-level", self._config.log_level])
         if self._config.user_data_dir:
-            args.extend(["--user-data-dir", self._config.user_data_dir])
+            args.extend(["--user-data-dir", os.path.expanduser(self._config.user_data_dir)])
         return args
