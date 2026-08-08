@@ -39,6 +39,7 @@ from app.infrastructure.linkedin_mcp.stage_logging import (
 )
 from app.infrastructure.telegram.notification import TelegramNotificationService
 from app.services.linkedin_mcp_pipeline_service import (
+    LinkedInFetchFailedError,
     LinkedInMCPPipelineResult,
     LinkedInMCPPipelineService,
 )
@@ -138,10 +139,23 @@ class LinkedInNotifyService:
             pipeline_result = self._pipeline.run(top_n=top_n)
         except LinkedInSessionExpiredError:
             self._stages.stage("auth", status="auth_required")
+            for name in ("fetch", "parse", "match", "deliver"):
+                self._stages.stage(name, status="skipped", reason="auth_required")
+            self._stages.stage("summary", status="auth_required")
             logger.warning("LinkedIn session expired; login required")
             return LinkedInNotifyResult(status="auth_required", message=_AUTH_MESSAGE)
+        except LinkedInFetchFailedError as exc:
+            self._stages.stage("fetch", status="failed", error=str(exc), fetched=0)
+            for name in ("parse", "match", "deliver"):
+                self._stages.stage(name, status="skipped", reason="fetch_failed")
+            self._stages.stage("summary", status="failed", reason="fetch_failed")
+            logger.error("LinkedIn notify fetch failed: %s", exc)
+            return LinkedInNotifyResult(status="error", message=str(exc))
         except Exception as exc:
             self._stages.stage("pipeline", status="error", error=str(exc))
+            for name in ("fetch", "parse", "match", "deliver"):
+                self._stages.stage(name, status="skipped", reason="pipeline_error")
+            self._stages.stage("summary", status="failed", error=str(exc))
             logger.error("LinkedIn notify pipeline failed: %s", exc)
             return LinkedInNotifyResult(status="error", message=str(exc))
 
@@ -157,6 +171,36 @@ class LinkedInNotifyService:
             duplicates=pipeline_result.duplicates,
             rejected=pipeline_result.rejected,
         )
+        self._stages.stage(
+            "parse",
+            status="ok",
+            inserted=pipeline_result.inserted,
+            duplicates=pipeline_result.duplicates,
+            rejected=pipeline_result.rejected,
+        )
+        self._stages.stage(
+            "match",
+            status="ok",
+            matched=pipeline_result.matched_total,
+            above=pipeline_result.above_threshold,
+        )
+
+        if pipeline_result.fetched == 0:
+            # A successful fetch that returned no jobs is not an error, but it
+            # must not deliver anything: a notification run only ever reports
+            # jobs it fetched in this run, never stored/historical ones.
+            self._stages.stage("deliver", status="skipped", reason="no_jobs_fetched")
+            self._stages.stage("summary", status="ok", status_code="no_jobs", new=0, sent=0)
+            logger.info("LinkedIn notify: fetch succeeded with zero jobs; nothing to deliver")
+            return LinkedInNotifyResult(
+                status="no_jobs",
+                source_id=pipeline_result.source_id,
+                fetched=0,
+                duplicates=pipeline_result.duplicates,
+                rejected=pipeline_result.rejected,
+                matched_total=0,
+                message="No new LinkedIn jobs to notify",
+            )
         return self._deliver(pipeline_result)
 
     def _deliver(self, pipeline_result: LinkedInMCPPipelineResult) -> LinkedInNotifyResult:

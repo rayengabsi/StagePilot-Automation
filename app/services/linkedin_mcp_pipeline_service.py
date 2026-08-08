@@ -44,6 +44,15 @@ from app.services.recommendation_service import RecommendationService
 Explainer = Callable[[Recommendation, str, str], str]
 
 
+class LinkedInFetchFailedError(RuntimeError):
+    """Raised when the LinkedIn discovery run failed to fetch jobs.
+
+    Distinct from a successful fetch that returned zero jobs: the caller must
+    stop before any matching or delivery when the *current* fetch failed, so
+    stored or historical jobs can never be delivered as if they were fresh.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class LinkedInMCPRecommendationResult:
     """One threshold-filtered recommendation with its explanation."""
@@ -146,7 +155,24 @@ class LinkedInMCPPipelineService:
         discovery = self._build_discovery(registry)
         summary = discovery.run_source(source)
 
-        recommendations = RecommendationService(session=self._session).recommend(top_n=top_n)
+        if summary.failed_sources_count > 0:
+            detail = (
+                "; ".join(summary.source_errors)
+                if summary.source_errors
+                else f"{summary.failed_sources_count} LinkedIn source failed"
+            )
+            raise LinkedInFetchFailedError(detail)
+
+        inserted_ids = list(summary.inserted_job_ids)
+        if inserted_ids:
+            recommendations = RecommendationService(session=self._session).recommend(
+                top_n=top_n, job_ids=inserted_ids
+            )
+        else:
+            # Either the fetch succeeded with zero jobs, or every fetched job
+            # was a duplicate/rejected — either way there is nothing this run
+            # can legitimately match or deliver. Never fall back to stored jobs.
+            recommendations = []
         cutoff = self._cutoff()
         results = tuple(self._to_result(rec, cutoff) for rec in recommendations)
         above = sum(1 for item in results if item.above_threshold)

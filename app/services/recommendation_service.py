@@ -60,11 +60,12 @@ class RecommendationService:
         self,
         top_n: int | None = None,
         profile_id: int | None = None,
+        job_ids: list[int] | None = None,
     ) -> list[Recommendation]:
         profile_rec, domain_profile = self._load_profile(profile_id)
 
         cutoff = self._config.thresholds.get("recommendation_cutoff", 0.0)
-        jobs = self._load_jobs()
+        jobs = self._load_jobs(job_ids)
 
         results: list[Recommendation] = []
         for job in jobs:
@@ -161,9 +162,17 @@ class RecommendationService:
 
         return profile_rec, domain_profile
 
-    def _load_jobs(self) -> list[Job]:
+    def _load_jobs(self, job_ids: list[int] | None = None) -> list[Job]:
+        """Load hard-filter-passing jobs, optionally restricted to ``job_ids``.
+
+        Scoping matching to a caller-provided set keeps a notification run
+        operating only on the jobs it just fetched — historical or stored jobs
+        can never leak into a run whose current fetch failed or returned none.
+        """
         subq = select(JobMatch.job_id).where(JobMatch.hard_filter_ok.is_(True)).subquery()
         stmt = select(Job).where(Job.id.in_(select(subq.c.job_id)))
+        if job_ids is not None:
+            stmt = stmt.where(Job.id.in_(job_ids))
         result = self._session.execute(stmt).scalars().all()
         return list(result)
 

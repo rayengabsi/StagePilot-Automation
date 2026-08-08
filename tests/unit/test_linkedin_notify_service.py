@@ -56,14 +56,16 @@ def _recommendation(
     )
 
 
-def _pipeline_result(*recs: LinkedInMCPRecommendationResult) -> LinkedInMCPPipelineResult:
+def _pipeline_result(
+    *recs: LinkedInMCPRecommendationResult, fetched: int = 2
+) -> LinkedInMCPPipelineResult:
     above = sum(1 for r in recs if r.above_threshold)
     return LinkedInMCPPipelineResult(
         source_id=1,
         source_name="linkedin-mcp",
         cutoff=30.0,
-        fetched=2,
-        inserted=2,
+        fetched=fetched,
+        inserted=fetched,
         duplicates=0,
         rejected=0,
         matched_total=len(recs),
@@ -172,6 +174,95 @@ def test_notify_only_passes_above_threshold_matches() -> None:
     assert result.status == "ok"
     assert result.above_threshold == 1
     assert [rec.url for rec in notifier.received] == ["https://x/above/"]
+
+
+def test_notify_fetch_failure_never_sends() -> None:
+    from app.services.linkedin_mcp_pipeline_service import LinkedInFetchFailedError
+
+    pipeline = MagicMock()
+    pipeline.run.side_effect = LinkedInFetchFailedError("LinkedIn source failed: boom")
+    notifier = _FakeNotifier()
+    service = LinkedInNotifyService(
+        session=MagicMock(),
+        settings=MagicMock(),
+        state_repo=_FakeState(),
+        notifier=notifier,  # type: ignore[arg-type]
+        pipeline=pipeline,
+    )
+
+    result = service.run()
+
+    assert result.status == "error"
+    assert result.telegram_sent == 0
+    assert notifier.received == []
+
+
+def test_notify_fetch_failure_does_not_fall_back_to_stored_jobs() -> None:
+    from app.services.linkedin_mcp_pipeline_service import LinkedInFetchFailedError
+
+    pipeline = MagicMock()
+    pipeline.run.side_effect = LinkedInFetchFailedError("LinkedIn source failed")
+    state = _FakeState()
+    state._seen.add("https://www.linkedin.com/jobs/view/mock-101")
+    notifier = _FakeNotifier()
+    service = LinkedInNotifyService(
+        session=MagicMock(),
+        settings=MagicMock(),
+        state_repo=state,
+        notifier=notifier,  # type: ignore[arg-type]
+        pipeline=pipeline,
+    )
+
+    result = service.run()
+
+    assert result.status == "error"
+    assert result.new_matches == 0
+    assert result.telegram_sent == 0
+    assert notifier.received == []
+
+
+def test_notify_zero_fetched_returns_no_jobs_and_never_sends() -> None:
+    state = _FakeState()
+    state.mark_notified("https://www.linkedin.com/jobs/view/mock-101")
+    state.mark_notified("https://www.linkedin.com/jobs/view/mock-102")
+    service, notifier, _ = _service(_pipeline_result(fetched=0), state=state)
+
+    result = service.run()
+
+    assert result.status == "no_jobs"
+    assert result.fetched == 0
+    assert result.above_threshold == 0
+    assert result.new_matches == 0
+    assert result.telegram_sent == 0
+    assert notifier.received == []
+
+
+def test_notify_fetch_failure_and_zero_fetch_are_distinct() -> None:
+    from app.services.linkedin_mcp_pipeline_service import LinkedInFetchFailedError
+
+    failed_pipeline = MagicMock()
+    failed_pipeline.run.side_effect = LinkedInFetchFailedError("boom")
+    failed = LinkedInNotifyService(
+        session=MagicMock(),
+        settings=MagicMock(),
+        state_repo=_FakeState(),
+        notifier=_FakeNotifier(),  # type: ignore[arg-type]
+        pipeline=failed_pipeline,
+    ).run()
+
+    empty_pipeline = MagicMock()
+    empty_pipeline.run.return_value = _pipeline_result(fetched=0)
+    empty = LinkedInNotifyService(
+        session=MagicMock(),
+        settings=MagicMock(),
+        state_repo=_FakeState(),
+        notifier=_FakeNotifier(),  # type: ignore[arg-type]
+        pipeline=empty_pipeline,
+    ).run()
+
+    assert failed.status == "error"
+    assert empty.status == "no_jobs"
+    assert empty.status != failed.status
 
 
 def _get_sent_urls(notifier: _FakeNotifier) -> list[str]:

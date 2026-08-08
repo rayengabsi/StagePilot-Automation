@@ -12,6 +12,7 @@ from app.infrastructure.linkedin_mcp.stage_logging import (
     QuietStageLogger,
 )
 from app.services.linkedin_mcp_pipeline_service import (
+    LinkedInFetchFailedError,
     LinkedInMCPPipelineResult,
 )
 from app.services.linkedin_notify_service import LinkedInNotifyService
@@ -82,7 +83,36 @@ def test_notify_records_stages_ok() -> None:
 
     service.run()
 
-    assert [name for name, _, _ in stages.records] == ["start", "fetch", "deliver", "summary"]
+    assert [name for name, _, _ in stages.records] == [
+        "start",
+        "fetch",
+        "parse",
+        "match",
+        "deliver",
+        "summary",
+    ]
+
+
+def test_notify_records_fetch_failed_and_delivery_skipped() -> None:
+    pipeline = MagicMock()
+    pipeline.run.side_effect = LinkedInFetchFailedError("server bootstrapping")
+    stages = _FakeStage()
+    service = LinkedInNotifyService(
+        session=MagicMock(),
+        settings=MagicMock(),
+        state_repo=MagicMock(),
+        notifier=MagicMock(),
+        pipeline=pipeline,
+        stage_logger=stages,
+    )
+
+    result = service.run()
+
+    assert result.status == "error"
+    names = {name for name, _, _ in stages.records}
+    assert ("fetch", "failed") in {r[:2] for r in stages.records}
+    assert ("deliver", "skipped") in {r[:2] for r in stages.records}
+    assert "parse" in names and "match" in names and "summary" in names
 
 
 def test_notify_records_auth_required_stage() -> None:

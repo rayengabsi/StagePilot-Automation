@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -40,6 +40,8 @@ class DiscoverySummary:
     rejection_breakdown: dict[str, int]
     duplicate_strategy_breakdown: dict[str, int]
     duration_seconds: float
+    inserted_job_ids: tuple[int, ...] = ()
+    source_errors: tuple[str, ...] = ()
 
 
 class DiscoveryService:
@@ -184,6 +186,7 @@ class DiscoveryService:
                     )
                 elif result.job_id is not None:
                     summary.inserted_count += 1
+                    summary.inserted_job_ids.append(result.job_id)
                     source_stats.jobs_inserted += 1
                     logger.info(
                         "job_ingested",
@@ -223,6 +226,7 @@ class DiscoveryService:
         """
         self._session.rollback()
         summary.failed_sources_count += 1
+        summary.source_errors.append(f"{source.name}: {exc}")
         stats.status = "failed"
         stats.error = str(exc)
         stats.latency_ms = round((time.monotonic() - started) * 1000, 2)
@@ -323,6 +327,8 @@ class _MutableDiscoverySummary:
     failed_sources_count: int = 0
     duration_seconds: float = 0.0
     match_counters: MutableMatchCounters | None = None
+    inserted_job_ids: list[int] = field(default_factory=list)
+    source_errors: list[str] = field(default_factory=list)
 
     def freeze(self) -> DiscoverySummary:
         """Return an immutable discovery summary."""
@@ -341,4 +347,6 @@ class _MutableDiscoverySummary:
             rejection_breakdown=ac.rejection_breakdown or {} if ac else {},
             duplicate_strategy_breakdown=ac.duplicate_strategy_breakdown or {} if ac else {},
             duration_seconds=round(self.duration_seconds, 3),
+            inserted_job_ids=tuple(self.inserted_job_ids),
+            source_errors=tuple(self.source_errors),
         )

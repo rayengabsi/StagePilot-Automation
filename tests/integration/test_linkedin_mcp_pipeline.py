@@ -14,7 +14,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from app.db.models.jobs import JobSource
+from app.db.models.jobs import Job, JobSource, RawJob
+from app.db.models.matching import JobMatch
 from app.db.models.profile import (
     PreferenceRecord,
     ProfileVersionRecord,
@@ -25,8 +26,12 @@ from app.domain.jobs.enums import JobSourceType
 from app.domain.jobs.errors import SourceConfigError
 from app.infrastructure.linkedin_mcp.notification_state import NotificationStateRepository
 from app.infrastructure.telegram.notification import TelegramNotificationService
-from app.services.linkedin_mcp_pipeline_service import LinkedInMCPPipelineService
+from app.services.linkedin_mcp_pipeline_service import (
+    LinkedInFetchFailedError,
+    LinkedInMCPPipelineService,
+)
 from app.services.linkedin_notify_service import LinkedInNotifyService
+from app.shared.time import utc_now
 from sqlalchemy.orm import Session
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -75,6 +80,66 @@ def _add_linkedin_source(session: Session, keywords: str | None = None) -> JobSo
     session.add(source)
     session.commit()
     return source
+
+
+def _add_broken_linkedin_source(session: Session) -> JobSource:
+    """Create an active LinkedIn MCP source whose server never starts.
+
+    Used to simulate a failed real fetch: the connector raises, discovery
+    marks the source failed, and the pipeline must stop instead of notifying
+    from stored/historical jobs.
+    """
+    source = JobSource(
+        name="LinkedIn Broken",
+        type=JobSourceType.LINKEDIN_MCP.value,
+        base_url="definitely-not-a-real-command",
+        config_json={
+            "search_tool": "search_jobs",
+            "detail_tool": "get_job_details",
+            "server_command": "definitely-not-a-real-command",
+            "server_cwd": str(_REPO_ROOT),
+        },
+        is_active=True,
+    )
+    session.add(source)
+    session.commit()
+    return source
+
+
+def _seed_historical_mock_job(session: Session, source: JobSource, *, tag: str, title: str) -> int:
+    """Insert a stored job shaped like the leaked MOCK-101/MOCK-102 records.
+
+    These records have a hard-filter-passing ``JobMatch`` — exactly the shape
+    a stored job must have to be recommended — so any run that falls back to
+    historical jobs would match and report them. Regression tests assert they
+    can never reach Telegram.
+    """
+    url = f"https://www.linkedin.com/jobs/view/mock-{tag}"
+    raw = RawJob(
+        source_id=source.id,
+        external_id=f"MOCK-{tag}",
+        url=url,
+        raw_payload_json={"job_id": f"MOCK-{tag}"},
+        content_hash=f"hash-mock-{tag}",
+        discovered_at=utc_now(),
+    )
+    session.add(raw)
+    session.flush()
+    job = Job(
+        raw_job_id=raw.id,
+        source_id=source.id,
+        external_id=f"MOCK-{tag}",
+        url=url,
+        title=title,
+        location="Tunis, Tunisia",
+        requirements="Python",
+        normalized_hash=f"norm-mock-{tag}",
+    )
+    session.add(job)
+    session.flush()
+    session.add(JobMatch(job_id=job.id, hard_filter_ok=True))
+    session.commit()
+    return job.id
 
 
 def test_linkedin_job_flows_through_matching_pipeline(db_session: Session) -> None:
@@ -157,10 +222,16 @@ def test_linkedin_notify_delivers_new_matches_once(db_session: Session) -> None:
     assert first.new_matches == first.telegram_sent
     assert first.telegram_sent == len(notifier.sent)
 
+    # The second run re-fetches the same job and discovery reports it as a
+    # duplicate, so this run inserted nothing and must not re-recommend the
+    # stored job — a notification run only ever matches its current fetch.
     second = service.run()
     assert second.status == "ok"
+    assert second.duplicates >= 1
+    assert second.matched_total == 0
+    assert second.new_matches == 0
     assert second.telegram_sent == 0
-    assert second.already_notified == first.above_threshold
+    assert second.already_notified == 0
 
 
 class _InMemoryState(NotificationStateRepository):
@@ -174,3 +245,74 @@ class _InMemoryState(NotificationStateRepository):
 
     def mark_notified(self, url: str) -> None:
         self._seen.add(url)
+
+
+def test_pipeline_raises_fetch_failed_when_source_fails(db_session: Session) -> None:
+    """A failed real fetch raises instead of returning a stale-job result."""
+    _add_profile(db_session)
+    _add_broken_linkedin_source(db_session)
+
+    service = LinkedInMCPPipelineService(session=db_session)
+    try:
+        service.run()
+    except LinkedInFetchFailedError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("expected LinkedInFetchFailedError")
+
+
+def test_notify_fetch_failure_never_sends_stored_mock_jobs(db_session: Session) -> None:
+    """Stored MOCK-101/MOCK-102 jobs are never delivered when the fetch fails."""
+    source = _add_broken_linkedin_source(db_session)
+    _seed_historical_mock_job(db_session, source, tag="101", title="Stored Mock PFE")
+    _seed_historical_mock_job(db_session, source, tag="102", title="Stored Mock Apprenticeship")
+
+    notifier = _FakeNotifier()
+    result = LinkedInNotifyService(
+        session=db_session, state_repo=_InMemoryState(), notifier=notifier
+    ).run()
+
+    assert result.status == "error"
+    assert result.fetched == 0
+    assert result.matched_total == 0
+    assert result.new_matches == 0
+    assert result.telegram_sent == 0
+    assert notifier.sent == []
+    assert not any("mock-" in url for url in notifier.sent)
+
+
+def test_notify_zero_fetched_never_sends_stored_mock_jobs(db_session: Session) -> None:
+    """A successful zero-job fetch still never falls back to stored mock jobs."""
+    source = _add_linkedin_source(db_session, keywords="zzzz-no-match-anything")
+    _seed_historical_mock_job(db_session, source, tag="101", title="Stored Mock PFE")
+    _seed_historical_mock_job(db_session, source, tag="102", title="Stored Mock Apprenticeship")
+
+    notifier = _FakeNotifier()
+    result = LinkedInNotifyService(
+        session=db_session, state_repo=_InMemoryState(), notifier=notifier
+    ).run()
+
+    assert result.status == "no_jobs"
+    assert result.fetched == 0
+    assert result.telegram_sent == 0
+    assert notifier.sent == []
+
+
+def test_notify_success_sends_only_this_runs_jobs_not_stored_mock(db_session: Session) -> None:
+    """A successful fetch delivers only this run's real jobs, never stored mocks."""
+    _add_profile(db_session)
+    source = _add_linkedin_source(db_session)
+    _seed_historical_mock_job(db_session, source, tag="101", title="Stored Mock PFE")
+    _seed_historical_mock_job(db_session, source, tag="102", title="Stored Mock Apprenticeship")
+
+    notifier = _FakeNotifier()
+    result = LinkedInNotifyService(
+        session=db_session, state_repo=_InMemoryState(), notifier=notifier
+    ).run()
+
+    assert result.status == "ok"
+    assert result.telegram_sent >= 1
+    assert result.telegram_sent == len(notifier.sent)
+    sent_urls = notifier.sent
+    assert all(not url.endswith("mock-101") and not url.endswith("mock-102") for url in sent_urls)
+    assert all(url.startswith("https://www.linkedin.com/jobs/view/") for url in sent_urls)

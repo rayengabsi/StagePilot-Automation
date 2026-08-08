@@ -1417,6 +1417,9 @@ def _handle_linkedin_notify(args: argparse.Namespace, settings: Settings) -> int
     if result.status == "error":
         print(result.message, file=sys.stderr)
         return 1
+    if result.status == "no_jobs":
+        print(result.message, file=sys.stderr)
+        return 0
     return 0
 
 
