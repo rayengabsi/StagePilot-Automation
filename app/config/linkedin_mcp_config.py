@@ -103,6 +103,9 @@ class LinkedInMCPConfig:
         if self.log_level:
             args.append("--log-level")
             args.append(self.log_level)
+        if self.user_data_dir:
+            args.append("--user-data-dir")
+            args.append(os.path.expanduser(self.user_data_dir))
         return args
 
 

@@ -118,6 +118,18 @@ def test_command_omits_user_data_dir_when_empty() -> None:
     assert "--user-data-dir" not in client._command("--login")
 
 
+def test_base_arguments_include_configured_user_data_dir() -> None:
+    cfg = _config(user_data_dir="~/.linkedin-mcp/profile-active")
+    args = cfg.base_arguments()
+    assert "--user-data-dir" in args
+    assert any("profile-active" in arg for arg in args)
+
+
+def test_base_arguments_omit_user_data_dir_when_empty() -> None:
+    args = _config().base_arguments()
+    assert "--user-data-dir" not in args
+
+
 def test_session_files_default_and_custom_paths(tmp_path: Path) -> None:
     profile, cookies, source_state = _session_files(_config())
     assert profile.name == "profile"

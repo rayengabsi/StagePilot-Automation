@@ -63,7 +63,13 @@ expired_markers = [
 # Persistent browser profile used by the real server. Empty means the server
 # uses its own default (~/.linkedin-mcp/profile). Provided so the profile can
 # be relocated or shared.
-user_data_dir = ""
+#
+# Defaults to a fresh directory: a previously used profile can end up owned by
+# another account (an elevated or service context) and return WinError 5
+# (Access is denied) to the authenticated user, which silently breaks every
+# headless search. A fresh path is always recreated and owned by the user at
+# the next `linkedin login`.
+user_data_dir = "~/.linkedin-mcp/profile-active"
 
 # Launch the interactive login with a visible browser window so the user can
 # sign in. The resulting profile is saved and reused on later runs.
