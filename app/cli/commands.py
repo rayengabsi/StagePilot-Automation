@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import ctypes
 import json
 import sys
 from dataclasses import asdict
@@ -47,6 +49,7 @@ from app.utils import pii as pii_utils
 
 def run_cli(argv: list[str] | None = None) -> int:
     """Run the StagePilot command-line interface."""
+    _reconfigure_utf8_stdio()
     settings = get_settings()
     configure_logging(settings)
     parser = _build_parser()
@@ -57,6 +60,26 @@ def run_cli(argv: list[str] | None = None) -> int:
         return 1
 
     return args.handler(args, settings)
+
+
+def _reconfigure_utf8_stdio() -> None:
+    """Force UTF-8 on stdout/stderr so emoji and non-ASCII output never crash.
+
+    When output is redirected or piped, CPython falls back to the ANSI code
+    page (cp1252 on Windows) and a character such as U+1F511 raises
+    ``UnicodeEncodeError``, aborting the whole command before any work is done.
+    Reconfiguring the streams and the console to UTF-8 keeps ``login``,
+    ``notify`` and every other handler output intact whether it lands on a
+    terminal, a pipe, or a log file.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            continue
+    if sys.platform == "win32":
+        with contextlib.suppress(Exception):
+            ctypes.windll.kernel32.SetConsoleOutputCP(65001)
 
 
 def _build_parser() -> argparse.ArgumentParser:
