@@ -8,6 +8,7 @@ no dependencies outside the standard library.
 from __future__ import annotations
 
 import re
+import unicodedata
 from urllib.parse import urlsplit
 
 # Technology aliases -> canonical display name.
@@ -477,6 +478,7 @@ DEGREE_KEYWORDS = (
     "b.tech",
     "engineer's degree",
     "engineering degree",
+    "baccalaureat",
 )
 
 # Abbreviated degree forms (matched after stripping periods) -> canonical keyword.
@@ -526,6 +528,8 @@ _DEGREE_LABEL_TOKENS = (
     "bootcamp",
     "certificate",
     "hnd",
+    "engineering degree",
+    "engineer's degree",
 )
 
 DEGREE_LABEL_RE = re.compile(
@@ -541,6 +545,9 @@ def detect_degree(degree: str) -> str | None:
     ``B.S.``, ``BSc``, ``M.Sc.`` and ``MBA``.
     """
     lower = degree.lower()
+    lower = re.sub(r"[\u00b4`]+", "", lower)
+    lower = unicodedata.normalize("NFKD", lower)
+    lower = "".join(ch for ch in lower if not unicodedata.combining(ch))
     no_dots = lower.replace(".", "")
     for abbreviation in sorted(DEGREE_ABBREVIATIONS, key=len, reverse=True):
         if re.search(rf"(?<![a-z0-9]){re.escape(abbreviation)}(?![a-z0-9])", no_dots):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import re
 from datetime import date
 from pathlib import Path
@@ -941,17 +942,20 @@ class ProfileNormalizer:
     # --------------------------------------------------------------- dates
 
     def _parse_date_token(self, token: str) -> date | None:
-        token = token.strip().strip(".")
-        m = re.fullmatch(r"([\w']+)\s+(\d{4})", token)
-        if m:
-            month = self.MONTHS.get(m.group(1).lower())
-            if month:
-                return date(int(m.group(2)), month, 1)
-        if re.fullmatch(r"\d{4}", token):
-            year = int(token)
+        token = token.strip()
+        bare_year = re.fullmatch(r"(\d{4})", token)
+        if bare_year:
+            year = int(bare_year.group(1))
             if 1950 <= year <= 2100:
                 return date(year, 1, 1)
-        return None
+            return None
+        m = re.fullmatch(r"([\w']+)\s*[.]?\s+(\d{4})", token)
+        if not m:
+            return None
+        month = self.MONTHS.get(m.group(1).lower())
+        if not month:
+            return None
+        return date(int(m.group(2)), month, 1)
 
     def _parse_date_range(self, text: str) -> tuple[date | None, date | None, bool]:
         """Return ``(start, end, is_current)`` for the first date range in ``text``."""
@@ -987,13 +991,49 @@ class ProfileNormalizer:
         without = re.sub(r"[\s\-/.,:()]", "", without)
         return without == ""
 
+    def _strip_date_tokens(self, text: str) -> str:
+        """Remove embedded date tokens (e.g. ``Jul. 2025``, ``Present``) from text."""
+        stripped = self.DATE_TOKEN_RE.sub(" ", text)
+        stripped = re.sub(
+            r"\b(?:present|présent|current|now|ongoing|en cours|actuel)\b",
+            " ",
+            stripped,
+            flags=re.IGNORECASE,
+        )
+        return re.sub(r"\s+", " ", stripped).strip(" ,-|—")
+
+    def _is_date_marker(self, line: str) -> bool:
+        """True when a line anchors a dated entry (title + range or pure date)."""
+        stripped = line.strip()
+        if not stripped:
+            return False
+        if self._is_pure_date_line(stripped):
+            return True
+        matches = list(self.DATE_TOKEN_RE.finditer(stripped))
+        if not matches:
+            return False
+        if re.search(
+            r"\b(?:present|présent|current|now|ongoing|en cours|actuel)\b",
+            stripped,
+            re.IGNORECASE,
+        ):
+            return True
+        if len(matches) >= 2:
+            prefix = stripped[: matches[0].start()].strip()
+            return not re.search(r"[.!?]\s*$", prefix) and len(stripped) <= 160
+        phrase = matches[0].group(1).strip()
+        if re.fullmatch(r"[\w']+\s+\d{4}", phrase, re.IGNORECASE):
+            prefix = stripped[: matches[0].start()].strip()
+            return bool(prefix) and not re.search(r"[.!?]\s*$", prefix)
+        return False
+
     # ------------------------------------------------------------- education
 
     def _parse_education(self, text: str) -> tuple[Education, ...]:
         if not text.strip():
             return ()
         entries: list[Education] = []
-        for block in self._split_into_blocks(text):
+        for block in self._split_entry_blocks(text, education=True):
             lines = [l.strip() for l in block.split("\n") if l.strip()]
             if not lines:
                 continue
@@ -1009,7 +1049,11 @@ class ProfileNormalizer:
                     continue
                 if degree_line is None and detect_degree(line):
                     degree_line = line
-                if field_line is None and FIELD_KEYWORDS_PATTERN.search(line):
+                if (
+                    field_line is None
+                    and FIELD_KEYWORDS_PATTERN.search(line)
+                    and not self._is_institution_like(line)
+                ):
                     field_line = line
             degree = self._normalize_degree_label(degree_line) if degree_line else None
             field = self._extract_field_phrase(field_line) if field_line else None
@@ -1025,6 +1069,17 @@ class ProfileNormalizer:
                 )
             )
         return tuple(entries)
+
+    @staticmethod
+    def _is_institution_like(line: str) -> bool:
+        return bool(
+            re.search(
+                r"\b(?:university|université|universidad|college|school|institute|"
+                r"institut|lycée|lycee|académie|academy|polytechnic|campus)\b",
+                line,
+                re.IGNORECASE,
+            )
+        )
 
     def _find_education_location(self, lines: list[str]) -> str | None:
         for line in lines:
@@ -1067,6 +1122,8 @@ class ProfileNormalizer:
 
     def _extract_field_phrase(self, line: str) -> str | None:
         cleaned = DEGREE_LABEL_RE.sub(" ", line)
+        cleaned = self.DATE_TOKEN_RE.sub(" ", cleaned)
+        cleaned = re.sub(r"\b(?:19|20)\d{2}\b", " ", cleaned)
         cleaned = re.sub(
             r"\b(?:of|in|en|studies|study|hons|honours|with|and|degree)\b",
             " ",
@@ -1093,7 +1150,7 @@ class ProfileNormalizer:
         if not text.strip():
             return ()
         entries: list[Experience] = []
-        for block in self._split_into_blocks(text):
+        for block in self._split_entry_blocks(text, education=False):
             lines = [l.strip() for l in block.split("\n") if l.strip()]
             if not lines:
                 continue
@@ -1133,6 +1190,9 @@ class ProfileNormalizer:
                 if not part:
                     continue
                 if self._is_pure_date_line(part):
+                    continue
+                part = self._strip_date_tokens(part)
+                if not part:
                     continue
                 et = self._extract_employment_type(part)
                 if et:
@@ -1235,7 +1295,16 @@ class ProfileNormalizer:
     def _split_project_entries(self, lines: list[str]) -> list[list[str]]:
         if lines and all(self._is_self_contained_project(line) for line in lines):
             return [[line] for line in lines]
-        return [lines]
+        headings = [index for index, line in enumerate(lines) if self._is_project_headline(line)]
+        if len(headings) < 2:
+            return [lines]
+        segments: list[list[str]] = []
+        if headings[0] > 0:
+            segments.append(lines[: headings[0]])
+        for index, start in enumerate(headings):
+            end = headings[index + 1] if index + 1 < len(headings) else len(lines)
+            segments.append(lines[start:end])
+        return segments
 
     @staticmethod
     def _is_self_contained_project(line: str) -> bool:
@@ -1246,6 +1315,19 @@ class ProfileNormalizer:
         has_separator = bool(re.match(r"^[^.]{2,60}\s+[—\-|]\s+\S+", line))
         has_url = bool(re.search(r"(?:https?://|www\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z]{2,})+/", line))
         return has_separator or has_url
+
+    def _is_project_headline(self, line: str) -> bool:
+        """True when a line starts a project (name with tech tail, date, or URL)."""
+        stripped = line.strip()
+        if not stripped or len(stripped) > 160:
+            return False
+        if re.match(r"^(?:https?://|www\.)", stripped, re.IGNORECASE):
+            return False
+        if re.search(r"[.!?]\s*$", stripped):
+            return False
+        if self._is_date_marker(stripped):
+            return True
+        return bool(re.search(r"[—\-|]\s+\S", stripped))
 
     def _parse_project(self, lines: list[str]) -> Project | None:
         block = "\n".join(lines)
@@ -1260,7 +1342,7 @@ class ProfileNormalizer:
             name = parts[0].strip()
             tech_tail = parts[1].strip()
             tail_parts = [t.strip() for t in re.split(r"[,;/]", tech_tail) if t.strip()]
-            if tail_parts and all(self._is_tech_line(t) for t in tail_parts):
+            if tail_parts and any(self._is_tech_line(t) for t in tail_parts):
                 technologies.extend(canonical_technology(t) for t in tail_parts)
             else:
                 description_parts.append(tech_tail)
@@ -1350,7 +1432,7 @@ class ProfileNormalizer:
             return ()
         entries: list[Language] = []
         seen: set[tuple[str, str | None]] = set()
-        items = re.split(r"[,;\n]", text)
+        items = re.split(r"[,;|\n]", text)
         for item in items:
             item = item.strip().strip("-*•").strip()
             if not item:
@@ -1578,3 +1660,38 @@ class ProfileNormalizer:
         """Split section text into logical blocks (blank-line separated)."""
         blocks = re.split(r"\n\s*\n", text)
         return [b.strip() for b in blocks if b.strip()]
+
+    def _split_entry_blocks(self, text: str, *, education: bool = False) -> list[str]:
+        """Split a section into per-entry blocks, even without blank lines.
+
+        ``_split_into_blocks`` only separates entries that leave a blank line
+        between them, so entries rendered back-to-back fall into a single block.
+        Here date-carrying lines anchor entry boundaries:
+
+        * ``experience`` entries start at their title/date line, so the cut
+          lands on the second (or later) marker line;
+        * ``education`` entries lead with the institution line, so the cut
+          lands right AFTER a degree/date marker, keeping the institution with
+          its degree.
+
+        When a block carries fewer than two markers no boundary is inferred and
+        the whole block is returned unchanged.
+        """
+        blocks = self._split_into_blocks(text)
+        result: list[str] = []
+        for block in blocks:
+            lines = [l.strip() for l in block.split("\n") if l.strip()]
+            markers = [i for i, line in enumerate(lines) if self._is_date_marker(line)]
+            if len(markers) < 2:
+                result.append(block)
+                continue
+            if education:
+                cuts = [0] + [idx + 1 for idx in markers]
+            else:
+                cuts = [0] + [idx for idx in markers if idx != 0]
+            bounds = sorted(set(cuts))
+            for start, end in itertools.pairwise(bounds):
+                result.append("\n".join(lines[start:end]))
+            if bounds[-1] < len(lines):
+                result.append("\n".join(lines[bounds[-1] :]))
+        return result
