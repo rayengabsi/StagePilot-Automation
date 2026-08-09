@@ -97,9 +97,7 @@ class LinkedInMCPConfig:
             bootstrap_max_wait_seconds=float(bootstrap.get("max_wait_seconds", 900.0)),
             bootstrap_poll_seconds=float(bootstrap.get("poll_seconds", 5.0)),
             bootstrap_probe_tool=str(bootstrap.get("probe_tool", "search_jobs")),
-            bootstrap_markers=tuple(
-                str(m).lower() for m in bootstrap.get("markers", [])
-            ),
+            bootstrap_markers=tuple(str(m).lower() for m in bootstrap.get("markers", [])),
             state_file=Path(_resolve(notify.get("state_file", "data/linkedin/notified.json"))),
             max_matching_skills=int(notify.get("max_matching_skills", 5)),
             max_missing_skills=int(notify.get("max_missing_skills", 5)),

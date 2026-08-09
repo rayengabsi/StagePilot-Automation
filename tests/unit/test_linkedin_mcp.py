@@ -68,9 +68,7 @@ def test_build_client_injects_playwright_browsers_path(
     monkeypatch.setattr(
         connector_module, "playwright_browsers_path", lambda: "C:/cache/ms-playwright"
     )
-    client = _job_connector()._build_client(
-        _source_config(server_env={"FOO": "bar"})
-    )
+    client = _job_connector()._build_client(_source_config(server_env={"FOO": "bar"}))
     assert client._params.env is not None
     assert client._params.env["PLAYWRIGHT_BROWSERS_PATH"] == "C:/cache/ms-playwright"
     assert client._params.env["FOO"] == "bar"

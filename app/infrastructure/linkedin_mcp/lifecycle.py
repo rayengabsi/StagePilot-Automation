@@ -164,9 +164,7 @@ class LinkedInMCPLifecycle:
         deadline = time.monotonic() + self._effective_timeout(timeout)
         bootstrap_waits = self._config.bootstrap_max_wait_seconds
         bootstrap_deadline = (
-            deadline
-            if bootstrap_waits <= 0
-            else min(deadline, time.monotonic() + bootstrap_waits)
+            deadline if bootstrap_waits <= 0 else min(deadline, time.monotonic() + bootstrap_waits)
         )
         poll = max(self._config.ready_poll_seconds, 0.1)
         while True:
