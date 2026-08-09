@@ -1740,7 +1740,10 @@ def _handle_profile_edit(args: argparse.Namespace, settings: Settings) -> int:
             try:
                 service.get_current_profile()
                 active_id = session.scalar(
-                    select(Profile.id).where(Profile.active.is_(True)).limit(1)
+                    select(Profile.id)
+                    .where(Profile.active.is_(True))
+                    .order_by(Profile.id.asc())
+                    .limit(1)
                 )
                 profile_id = active_id
             except Exception as exc:

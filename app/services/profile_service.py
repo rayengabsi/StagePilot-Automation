@@ -69,13 +69,34 @@ class ProfileService:
         self._persist(profile, completeness, description or f"Imported from {file_path.name}")
         return profile
 
+    def _active_profile_row(self) -> Profile | None:
+        """Return the single active profile, healing corrupted multi-active state.
+
+        The active-profile invariant is enforced here: at most one profile may
+        be active. If legacy/duplicated data has marked several profiles as
+        active, the lowest-id profile (the original/earliest active one) is kept
+        and the others are deterministically deactivated — matching the profile
+        that ``get_current_profile`` has historically surfaced. Rows are never
+        deleted. Relies on a deterministic ``ORDER BY`` rather than an arbitrary
+        ``LIMIT 1`` over an unordered query.
+        """
+        active_rows = self._session.scalars(
+            select(Profile).where(Profile.active.is_(True)).order_by(Profile.id.asc())
+        ).all()
+        if not active_rows:
+            return None
+        current = active_rows[0]
+        for stale in active_rows[1:]:
+            stale.active = False
+        return current
+
     def _persist(
         self,
         profile: MasterProfile,
         completeness: ProfileCompleteness,
         description: str,
     ) -> None:
-        profile_row = self._session.scalar(select(Profile).where(Profile.active.is_(True)).limit(1))
+        profile_row = self._active_profile_row()
         if profile_row is None:
             profile_row = Profile(active=True)
             self._session.add(profile_row)
@@ -246,7 +267,7 @@ class ProfileService:
         return (max_version or 0) + 1
 
     def get_current_profile(self) -> MasterProfile:
-        profile_row = self._session.scalar(select(Profile).where(Profile.active.is_(True)).limit(1))
+        profile_row = self._active_profile_row()
         if profile_row is None:
             raise ProfileNotFoundError("No active profile found.")
         return self._db_to_domain(profile_row)
@@ -383,7 +404,7 @@ class ProfileService:
 
     def export_profile(self, file_path: Path) -> None:
         profile = self.get_current_profile()
-        profile_row = self._session.scalar(select(Profile).where(Profile.active.is_(True)).limit(1))
+        profile_row = self._active_profile_row()
         data = profile.to_dict()
         if profile_row is not None:
             data["name"] = profile_row.name
@@ -395,7 +416,7 @@ class ProfileService:
             json.dump(data, f, indent=2, default=str)
 
     def list_versions(self) -> tuple[ProfileVersion, ...]:
-        profile_row = self._session.scalar(select(Profile).limit(1))
+        profile_row = self._session.scalar(select(Profile).order_by(Profile.id.asc()).limit(1))
         if profile_row is None:
             raise ProfileNotFoundError("No profile has been imported yet.")
         version_rows = self._session.scalars(

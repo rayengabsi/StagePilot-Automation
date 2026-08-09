@@ -450,3 +450,187 @@ def test_get_profile_by_id_raises_if_not_found() -> None:
     )
     with pytest.raises(ProfileNotFoundError):
         service.get_profile_by_id(999)
+
+
+class _MultiEntryFakeParser:
+    """Synthetic resume with multiple entries per structured section."""
+
+    def parse(self, _file_path: Path) -> str:
+        return """Alex Smith
+alex@example.com
+
+Summary
+Full-stack engineer with multiple internships.
+
+Education
+North Polytechnic
+Engineering Degree in Software Engineering Sep. 2020 - Jun. 2024
+East High School
+High School Diploma Sep. 2016 - Jun. 2020
+
+Experience
+Software Engineering Intern Jul. 2024 - Present
+Acme Software
+Built microservices.
+QA Intern Jul. 2023 - Aug. 2023
+Bees Inc
+Wrote automated tests.
+
+Projects
+TradeSim - FastAPI, React
+Built a trading simulator.
+TripPal - FastAPI, React Native, Firebase
+Built a trip planner app.
+
+Skills
+Python, Java, Docker, SQL, TypeScript
+
+Languages
+Arabic (native)
+French (B2)
+English (C1)
+"""
+
+
+def _service(session: Session) -> ProfileService:
+    return ProfileService(
+        session=session,
+        parser=_FakeParser(),
+        normalizer=ProfileNormalizer(),
+        validator=ProfileValidator(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Single-active invariant regression tests
+# ---------------------------------------------------------------------------
+
+
+def test_activating_one_profile_deactivates_another() -> None:
+    """Test A: activating profile B must deactivate the previously active A."""
+    session = _session()
+    service = _service(session)
+    service.import_resume(Path("fake.pdf"))
+    profile_a = session.query(Profile).filter(Profile.active.is_(True)).one()
+    profile_b = Profile(active=False, name="Candidate B")
+    session.add(profile_b)
+    session.flush()
+
+    session.query(Profile).filter(Profile.id == profile_a.id).update({"active": True})
+    session.commit()
+
+    name = service.activate_profile(profile_b.id)
+    assert name is not None
+    session.expire_all()
+    active_rows = session.query(Profile).filter(Profile.active.is_(True)).all()
+    assert len(active_rows) == 1
+    assert active_rows[0].id == profile_b.id
+    session.expire_all()
+    a = session.query(Profile).filter_by(id=profile_a.id).one()
+    b = session.query(Profile).filter_by(id=profile_b.id).one()
+    assert a.active is False
+    assert b.active is True
+
+
+def test_import_does_not_create_second_active_profile() -> None:
+    """Test B: importing must keep exactly one active profile."""
+    session = _session()
+    service = _service(session)
+    service.import_resume(Path("fake.pdf"))
+    first_id = service.list_profiles()[0]["id"]
+
+    session.add(Profile(active=False, name="Historical"))
+    session.flush()
+
+    service.import_resume(Path("fake.pdf"))
+    session.expire_all()
+    active_rows = session.query(Profile).filter(Profile.active.is_(True)).all()
+    assert len(active_rows) == 1
+    assert active_rows[0].id == first_id
+    assert session.query(Profile).count() == 2
+    remaining = session.query(Profile).filter(Profile.active.is_(False)).all()
+    assert len(remaining) == 1
+    assert remaining[0].name == "Historical"
+
+
+def test_legacy_multiple_active_resolves_deterministically() -> None:
+    """Test C: corrupted multi-active state must resolve deterministically."""
+    session = _session()
+    service = _service(session)
+    older = Profile(active=True, name="Legacy Older")
+    newer = Profile(active=True, name="Legacy Newer")
+    session.add_all([older, newer])
+    session.flush()
+
+    current = service.get_current_profile()
+    assert current.personal_info.full_name == ""
+    session.expire_all()
+    active_rows = session.query(Profile).filter(Profile.active.is_(True)).all()
+    assert len(active_rows) == 1
+    assert active_rows[0].id == older.id
+    session.expire_all()
+    assert session.query(Profile).filter_by(id=newer.id).one().active is False
+    assert session.query(Profile).count() == 2
+
+
+def test_no_profiles_keeps_no_profile_behavior() -> None:
+    """Test D: no profiles must surface the existing 'no profile' behavior."""
+    import pytest
+
+    session = _session()
+    service = _service(session)
+    with pytest.raises(ProfileNotFoundError):
+        service.get_current_profile()
+
+
+def test_get_current_profile_returns_active_amid_inactive_history() -> None:
+    """Test E: historical inactive profiles must stay untouched and active wins."""
+    session = _session()
+    service = _service(session)
+    session.add_all(
+        [
+            Profile(active=False, name="Old 1"),
+            Profile(active=True, name="Current"),
+            Profile(active=False, name="Old 2"),
+            Profile(active=False, name="Old 3"),
+        ]
+    )
+    session.flush()
+    current = service.get_current_profile()
+    assert current.personal_info.full_name == ""
+    session.expire_all()
+    active_rows = session.query(Profile).filter(Profile.active.is_(True)).all()
+    assert len(active_rows) == 1
+    assert active_rows[0].name == "Current"
+    session.expire_all()
+    names = {r.name: r.active for r in session.query(Profile).all()}
+    assert names == {
+        "Old 1": False,
+        "Current": True,
+        "Old 2": False,
+        "Old 3": False,
+    }
+
+
+def test_import_roundtrip_preserves_multi_entry_data() -> None:
+    """Test F: a multi-entry profile must survive import + re-read intact."""
+    session = _session()
+    service = ProfileService(
+        session=session,
+        parser=_MultiEntryFakeParser(),
+        normalizer=ProfileNormalizer(),
+        validator=ProfileValidator(),
+    )
+    service.import_resume(Path("multi.pdf"))
+    current = service.get_current_profile()
+    assert len(current.experience) == 2
+    assert len(current.education) == 2
+    assert len(current.projects) == 2
+    assert len(current.languages) == 3
+    assert len(current.skills) >= 5
+    companies = [e.company for e in current.experience]
+    assert "Acme Software" in companies and "Bees Inc" in companies
+    institutions = [e.institution for e in current.education]
+    assert "North Polytechnic" in institutions and "East High School" in institutions
+    project_names = [p.name for p in current.projects]
+    assert "TradeSim" in project_names and "TripPal" in project_names
