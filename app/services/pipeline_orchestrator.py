@@ -38,6 +38,7 @@ from app.services.profile_service import ProfileService
 from app.services.profile_validator import ProfileValidator
 from app.services.recommendation_service import RecommendationService
 from app.services.resume_tailor_service import ResumeTailorService
+from app.services.user_filter_service import UserFilterService
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +47,7 @@ class PipelineRunResult:
     jobs_found: int = 0
     duplicates_removed: int = 0
     normalized: int = 0
+    filtered: int = 0
     matched: int = 0
     below_threshold: int = 0
     ai_completed: int = 0
@@ -56,6 +58,7 @@ class PipelineRunResult:
     packages_created: int = 0
     queued: int = 0
     telegram_sent: bool = False
+    filter_rejection_breakdown: dict[str, int] = field(default_factory=dict)
     errors: list[dict[str, Any]] = field(default_factory=list)
     duration_seconds: float = 0.0
 
@@ -95,10 +98,14 @@ class PipelineOrchestrator:
             duplicates_removed = (
                 discovery_result.duplicate_count + discovery_result.semantic_duplicates
             )
+            filtered = getattr(discovery_result, "filtered_count", 0)
+            filter_breakdown = getattr(discovery_result, "filter_rejection_breakdown", {})
         else:
             jobs_found = 0
             normalized = 0
             duplicates_removed = 0
+            filtered = 0
+            filter_breakdown = {}
 
         # Step 5: Profile matching
         recommendations = self._run_matching(errors)
@@ -250,6 +257,7 @@ class PipelineOrchestrator:
             jobs_found=jobs_found,
             duplicates_removed=duplicates_removed,
             normalized=normalized,
+            filtered=filtered,
             matched=matched,
             below_threshold=below_threshold,
             ai_completed=ai_ok,
@@ -260,6 +268,7 @@ class PipelineOrchestrator:
             packages_created=packages_created,
             queued=queued,
             telegram_sent=telegram_sent,
+            filter_rejection_breakdown=dict(filter_breakdown),
             errors=errors,
             duration_seconds=duration,
         )
@@ -278,6 +287,7 @@ class PipelineOrchestrator:
                 connector_registry=registry,
                 normalizer=JobNormalizationService(),
                 matching_service=matching_service,
+                user_filter_service=UserFilterService(self._session),
             )
             return discovery.run_once()
         except Exception as exc:

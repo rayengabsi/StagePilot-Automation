@@ -16,6 +16,7 @@ from app.db.models.approval import (
     ApprovalQueueRecord,
 )
 from app.db.models.discovery import DiscoveryMetricRecord
+from app.db.models.job_filter import JobFilter
 from app.db.models.jobs import Job, JobSource, RawJob
 from app.db.models.matching import JobMatch
 from app.db.models.pipeline import PipelineRunRecord
@@ -51,6 +52,7 @@ __all__ = [
     "ExperienceRecord",
     "FollowUpReminderRecord",
     "Job",
+    "JobFilter",
     "JobMatch",
     "JobSource",
     "LanguageRecord",

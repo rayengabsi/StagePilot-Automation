@@ -19,6 +19,7 @@ from app.services.job_ingestion_service import JobIngestionService
 from app.services.job_matching_service import JobMatchingService, MutableMatchCounters
 from app.services.job_normalization_service import JobNormalizationService
 from app.services.job_source_repository import JobSourceRepository
+from app.services.user_filter_service import UserFilterService
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,9 @@ class DiscoverySummary:
     duration_seconds: float
     inserted_job_ids: tuple[int, ...] = ()
     source_errors: tuple[str, ...] = ()
+    filtered_count: int = 0
+    filtered_job_ids: tuple[int, ...] = ()
+    filter_rejection_breakdown: dict[str, int] = field(default_factory=dict)
 
 
 class DiscoveryService:
@@ -54,6 +58,7 @@ class DiscoveryService:
         normalizer: JobNormalizationService,
         matching_service: JobMatchingService,
         classifier: JobClassificationService | None = None,
+        user_filter_service: UserFilterService | None = None,
     ) -> None:
         """Initialize the discovery service dependencies.
 
@@ -61,6 +66,11 @@ class DiscoveryService:
         intelligence (specialization, seniority, employment type, work mode,
         urgency) immediately after normalization and before ingestion. When
         omitted the default JobClassificationService is used.
+
+        *user_filter_service* applies the user-controlled hard filter stage to
+        every job inserted during *this* run, before the job reaches the
+        existing matching/scoring stage. Filtered jobs are never matched or
+        delivered. When omitted no user filtering is applied.
         """
         self._session = session
         self._sources = JobSourceRepository(session)
@@ -69,6 +79,7 @@ class DiscoveryService:
         self._normalizer = normalizer
         self._matching = matching_service
         self._classifier = classifier or JobClassificationService()
+        self._user_filter_service = user_filter_service
 
     def run_once(self, backfill_existing: bool = False) -> DiscoverySummary:
         """Run discovery once across all active configured sources.
@@ -198,6 +209,10 @@ class DiscoveryService:
                             "url": discovered.url,
                         },
                     )
+                    if self._user_filter_service is not None and self._is_filtered_out(
+                        result.job_id, summary
+                    ):
+                        continue
                     self._process_job(result.job_id, summary)
             counters_after = _snapshot_counters(summary.match_counters)
             source_stats.accepted = counters_after["accepted"] - counters_before["accepted"]
@@ -273,6 +288,36 @@ class DiscoveryService:
             return
         self._matching.process(job, counters=summary.match_counters)
 
+    def _is_filtered_out(self, job_id: int, summary: _MutableDiscoverySummary) -> bool:
+        """Apply the user filter stage and record whether the job is excluded.
+
+        Filtered jobs are removed from the current run's eligible set (they are
+        never matched, scored, or delivered) and their rejection is attributed
+        to the exact structured rule identifier in the breakdown.
+        """
+        job = self._session.get(Job, job_id)
+        if job is None or self._user_filter_service is None:
+            return False
+        result = self._user_filter_service.evaluate(job)
+        if result.passed:
+            return False
+        summary.filtered_count += 1
+        summary.filtered_job_ids.append(job_id)
+        for rejection in result.rejections:
+            code = rejection.code.value
+            summary.filter_rejection_breakdown[code] = (
+                summary.filter_rejection_breakdown.get(code, 0) + 1
+            )
+        logger.info(
+            "job_user_filtered",
+            extra={
+                "run_id": summary.run_id,
+                "job_id": job_id,
+                "rejection": result.rejections[0].code.value if result.rejections else None,
+            },
+        )
+        return True
+
     def _backfill_existing(self, summary: _MutableDiscoverySummary) -> None:
         """Create match records for jobs that were ingested before Phase 2."""
         job_ids = self._session.scalars(
@@ -329,6 +374,9 @@ class _MutableDiscoverySummary:
     match_counters: MutableMatchCounters | None = None
     inserted_job_ids: list[int] = field(default_factory=list)
     source_errors: list[str] = field(default_factory=list)
+    filtered_count: int = 0
+    filtered_job_ids: list[int] = field(default_factory=list)
+    filter_rejection_breakdown: dict[str, int] = field(default_factory=dict)
 
     def freeze(self) -> DiscoverySummary:
         """Return an immutable discovery summary."""
@@ -349,4 +397,7 @@ class _MutableDiscoverySummary:
             duration_seconds=round(self.duration_seconds, 3),
             inserted_job_ids=tuple(self.inserted_job_ids),
             source_errors=tuple(self.source_errors),
+            filtered_count=self.filtered_count,
+            filtered_job_ids=tuple(self.filtered_job_ids),
+            filter_rejection_breakdown=dict(self.filter_rejection_breakdown),
         )

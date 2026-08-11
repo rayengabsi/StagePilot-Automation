@@ -18,7 +18,7 @@ insights); an ``explainer`` callable can be injected to override this.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -40,6 +40,7 @@ from app.services.filtering_service import HardFilterService
 from app.services.job_matching_service import JobMatchingService
 from app.services.job_normalization_service import JobNormalizationService
 from app.services.recommendation_service import RecommendationService
+from app.services.user_filter_service import UserFilterService
 
 Explainer = Callable[[Recommendation, str, str], str]
 
@@ -113,6 +114,8 @@ class LinkedInMCPPipelineResult:
     above_threshold: int
     below_threshold: int
     recommendations: tuple[LinkedInMCPRecommendationResult, ...]
+    filtered: int = 0
+    filter_rejection_breakdown: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation."""
@@ -124,9 +127,11 @@ class LinkedInMCPPipelineResult:
             "inserted": self.inserted,
             "duplicates": self.duplicates,
             "rejected": self.rejected,
+            "filtered": self.filtered,
             "matched_total": self.matched_total,
             "above_threshold": self.above_threshold,
             "below_threshold": self.below_threshold,
+            "filter_rejection_breakdown": dict(self.filter_rejection_breakdown),
             "recommendations": [rec.to_dict() for rec in self.recommendations],
         }
 
@@ -164,13 +169,16 @@ class LinkedInMCPPipelineService:
             raise LinkedInFetchFailedError(detail)
 
         inserted_ids = list(summary.inserted_job_ids)
-        if inserted_ids:
+        filtered_ids = set(summary.filtered_job_ids)
+        eligible_ids = [job_id for job_id in inserted_ids if job_id not in filtered_ids]
+        if eligible_ids:
             recommendations = RecommendationService(session=self._session).recommend(
-                top_n=top_n, job_ids=inserted_ids
+                top_n=top_n, job_ids=eligible_ids
             )
         else:
-            # Either the fetch succeeded with zero jobs, or every fetched job
-            # was a duplicate/rejected — either way there is nothing this run
+            # Either the fetch succeeded with zero jobs, every fetched job
+            # was a duplicate/rejected, or every inserted job was excluded by
+            # the user filter stage — either way there is nothing this run
             # can legitimately match or deliver. Never fall back to stored jobs.
             recommendations = []
         cutoff = self._cutoff()
@@ -184,9 +192,11 @@ class LinkedInMCPPipelineService:
             inserted=summary.inserted_count,
             duplicates=summary.duplicate_count,
             rejected=summary.rejected,
+            filtered=summary.filtered_count,
             matched_total=len(results),
             above_threshold=above,
             below_threshold=len(results) - above,
+            filter_rejection_breakdown=dict(summary.filter_rejection_breakdown),
             recommendations=results,
         )
 
@@ -250,6 +260,7 @@ class LinkedInMCPPipelineService:
                     fuzzy_threshold=self._settings.filter_rules.fuzzy_title_threshold,
                 ),
             ),
+            user_filter_service=UserFilterService(self._session),
         )
 
     def _cutoff(self) -> float:

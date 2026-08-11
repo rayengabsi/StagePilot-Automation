@@ -13,8 +13,10 @@ from sqlalchemy import select
 from app.config.ai_config import get_ai_config
 from app.config.logging import configure_logging
 from app.config.settings import Settings, get_settings
+from app.db.models.jobs import Job
 from app.db.models.profile import Profile
 from app.db.session import create_database_engine, create_session_factory, session_scope
+from app.domain.job_filters.entities import JobFilterRules
 from app.domain.master_profile.errors import ProfileValidationError
 from app.domain.master_profile.errors import ValidationError as ProfileValidationIssue
 from app.infrastructure.job_sources.registry import build_connector_registry
@@ -44,6 +46,11 @@ from app.services.prompt_service import PromptService
 from app.services.recommendation_service import RecommendationService
 from app.services.resume_tailor_service import ResumeTailorService
 from app.services.source_validation_service import SourceValidationService
+from app.services.user_filter_service import (
+    UserFilterService,
+    load_job_filter_rules,
+    save_job_filter_rules,
+)
 from app.utils import pii as pii_utils
 
 
@@ -675,6 +682,156 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     linkedin_login.set_defaults(handler=_handle_linkedin_login)
 
+    filter_parser = subparsers.add_parser(
+        "filter", help="Manage the user-controlled job filter stage."
+    )
+    filter_subparsers = filter_parser.add_subparsers(dest="filter_command")
+
+    f_show = filter_subparsers.add_parser("show", help="Show the current filter rules as JSON.")
+    f_show.set_defaults(handler=_handle_filter_show)
+
+    f_set = filter_subparsers.add_parser("set", help="Set filter rules (overrides given fields).")
+    f_set.add_argument(
+        "--rules", type=str, default=None, help="Full rules JSON (overrides all flags)."
+    )
+    f_set.add_argument(
+        "--excluded-keywords",
+        type=str,
+        default=None,
+        help="Comma-separated keywords that must not appear in a job.",
+    )
+    f_set.add_argument(
+        "--required-keywords",
+        type=str,
+        default=None,
+        help="Comma-separated keywords that must appear in a job.",
+    )
+    f_set.add_argument(
+        "--excluded-titles",
+        type=str,
+        default=None,
+        help="Comma-separated title terms to exclude.",
+    )
+    f_set.add_argument(
+        "--required-titles",
+        type=str,
+        default=None,
+        help="Comma-separated title terms that must appear.",
+    )
+    f_set.add_argument(
+        "--excluded-companies",
+        type=str,
+        default=None,
+        help="Comma-separated company names to exclude.",
+    )
+    f_set.add_argument(
+        "--required-companies",
+        type=str,
+        default=None,
+        help="Comma-separated companies that must match.",
+    )
+    f_set.add_argument(
+        "--excluded-locations",
+        type=str,
+        default=None,
+        help="Comma-separated locations to exclude.",
+    )
+    f_set.add_argument(
+        "--required-locations",
+        type=str,
+        default=None,
+        help="Comma-separated locations that must match.",
+    )
+    f_set.add_argument(
+        "--remote-only",
+        action="store_true",
+        default=None,
+        help="Accept only remote or hybrid jobs.",
+    )
+    f_set.add_argument(
+        "--no-remote-only",
+        dest="remote_only",
+        action="store_false",
+        default=None,
+        help="Disable the remote-only restriction.",
+    )
+    f_set.add_argument(
+        "--employment-type-exclude",
+        type=str,
+        default=None,
+        help="Comma-separated employment types to exclude.",
+    )
+    f_set.add_argument(
+        "--employment-type-include",
+        type=str,
+        default=None,
+        help="Comma-separated accepted employment types.",
+    )
+    f_set.add_argument(
+        "--seniority-exclude",
+        type=str,
+        default=None,
+        help="Comma-separated seniority levels to exclude.",
+    )
+    f_set.add_argument(
+        "--seniority-include",
+        type=str,
+        default=None,
+        help="Comma-separated accepted seniority levels.",
+    )
+    f_set.add_argument("--salary-min", type=float, default=None, help="Minimum annual salary.")
+    f_set.add_argument("--salary-max", type=float, default=None, help="Maximum annual salary.")
+    f_set.add_argument(
+        "--salary-currency", type=str, default=None, help="Salary currency (usd/eur/...)."
+    )
+    f_set.add_argument(
+        "--visa-required",
+        type=str,
+        default=None,
+        help="Comma-separated visa sponsorship signals that must appear.",
+    )
+    f_set.add_argument(
+        "--visa-exclude",
+        type=str,
+        default=None,
+        help="Comma-separated visa signals to exclude.",
+    )
+    f_set.add_argument(
+        "--excluded-sources",
+        type=str,
+        default=None,
+        help="Comma-separated source names to exclude.",
+    )
+    f_set.add_argument(
+        "--included-sources",
+        type=str,
+        default=None,
+        help="Comma-separated source names that are accepted.",
+    )
+    f_set.add_argument(
+        "--max-job-age-days", type=int, default=None, help="Reject jobs older than N days."
+    )
+    f_set.add_argument(
+        "--unknown-data-policy",
+        type=str,
+        default=None,
+        choices=["accept", "reject", "ignore"],
+        help="Behavior when a required field is missing (default: accept).",
+    )
+    f_set.set_defaults(handler=_handle_filter_set)
+
+    f_reset = filter_subparsers.add_parser(
+        "reset", help="Clear all filter rules (no restrictions)."
+    )
+    f_reset.set_defaults(handler=_handle_filter_reset)
+
+    f_test = filter_subparsers.add_parser(
+        "test",
+        help="Evaluate the current rules against one job and print the decision.",
+    )
+    f_test.add_argument("--job-id", type=int, required=True, help="Job ID to evaluate.")
+    f_test.set_defaults(handler=_handle_filter_test)
+
     doctor_parser = subparsers.add_parser(
         "doctor",
         help="Run environment and integration diagnostics.",
@@ -1008,6 +1165,9 @@ def _execute_pipeline(_args: argparse.Namespace, settings: Settings) -> int:
             "run_id": result.run_id,
             "jobs_found": result.jobs_found,
             "duplicates_removed": result.duplicates_removed,
+            "normalized": result.normalized,
+            "filtered": result.filtered,
+            "filter_rejection_breakdown": result.filter_rejection_breakdown,
             "matched": result.matched,
             "below_threshold": result.below_threshold,
             "ai_completed": result.ai_completed,
@@ -1103,6 +1263,129 @@ def _handle_discover(args: argparse.Namespace, settings: Settings) -> int:
         summary = service.run_once(backfill_existing=backfill)
 
     print(json.dumps(asdict(summary), sort_keys=True))
+    return 0
+
+
+def _parse_csv(value: str | None) -> list[str]:
+    """Split a comma-separated CLI flag into trimmed non-empty items."""
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _handle_filter_show(_args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        rules = load_job_filter_rules(session)
+    print(json.dumps(rules.model_dump(), indent=2, sort_keys=True, default=str))
+    return 0
+
+
+def _handle_filter_reset(_args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        save_job_filter_rules(session, JobFilterRules())
+        rules = load_job_filter_rules(session)
+    print(json.dumps(rules.model_dump(), indent=2, sort_keys=True, default=str))
+    return 0
+
+
+def _handle_filter_set(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        current = load_job_filter_rules(session)
+        if args.rules is not None:
+            try:
+                parsed = json.loads(args.rules)
+            except json.JSONDecodeError as exc:
+                print(json.dumps({"error": f"invalid --rules JSON: {exc}"}))
+                return 1
+            try:
+                rules = JobFilterRules.model_validate(parsed)
+            except Exception as exc:
+                print(json.dumps({"error": f"invalid rules: {exc}"}))
+                return 1
+        else:
+            overrides: dict[str, object] = {}
+            if args.excluded_keywords is not None:
+                overrides["excluded_keywords"] = _parse_csv(args.excluded_keywords)
+            if args.required_keywords is not None:
+                overrides["required_keywords"] = _parse_csv(args.required_keywords)
+            if args.excluded_titles is not None:
+                overrides["excluded_titles"] = _parse_csv(args.excluded_titles)
+            if args.required_titles is not None:
+                overrides["required_titles"] = _parse_csv(args.required_titles)
+            if args.excluded_companies is not None:
+                overrides["excluded_companies"] = _parse_csv(args.excluded_companies)
+            if args.required_companies is not None:
+                overrides["required_companies"] = _parse_csv(args.required_companies)
+            if args.excluded_locations is not None:
+                overrides["excluded_locations"] = _parse_csv(args.excluded_locations)
+            if args.required_locations is not None:
+                overrides["required_locations"] = _parse_csv(args.required_locations)
+            if args.remote_only is not None:
+                overrides["remote_only"] = args.remote_only
+            if args.employment_type_exclude is not None:
+                overrides["employment_type_exclude"] = _parse_csv(args.employment_type_exclude)
+            if args.employment_type_include is not None:
+                overrides["employment_type_include"] = _parse_csv(args.employment_type_include)
+            if args.seniority_exclude is not None:
+                overrides["seniority_exclude"] = _parse_csv(args.seniority_exclude)
+            if args.seniority_include is not None:
+                overrides["seniority_include"] = _parse_csv(args.seniority_include)
+            if args.salary_min is not None:
+                overrides["salary_min"] = args.salary_min
+            if args.salary_max is not None:
+                overrides["salary_max"] = args.salary_max
+            if args.salary_currency is not None:
+                overrides["salary_currency"] = args.salary_currency
+            if args.visa_required is not None:
+                overrides["visa_required_keywords"] = _parse_csv(args.visa_required)
+            if args.visa_exclude is not None:
+                overrides["visa_excluded_keywords"] = _parse_csv(args.visa_exclude)
+            if args.excluded_sources is not None:
+                overrides["excluded_sources"] = _parse_csv(args.excluded_sources)
+            if args.included_sources is not None:
+                overrides["included_sources"] = _parse_csv(args.included_sources)
+            if args.max_job_age_days is not None:
+                overrides["max_job_age_days"] = args.max_job_age_days
+            if args.unknown_data_policy is not None:
+                overrides["unknown_data_policy"] = args.unknown_data_policy
+            rules = current.model_copy(update=overrides)
+        save_job_filter_rules(session, rules)
+        rules = load_job_filter_rules(session)
+    print(json.dumps(rules.model_dump(), indent=2, sort_keys=True, default=str))
+    return 0
+
+
+def _handle_filter_test(args: argparse.Namespace, settings: Settings) -> int:
+    engine = create_database_engine(settings)
+    session_factory = create_session_factory(engine)
+    with session_scope(session_factory) as session:
+        job = session.get(Job, args.job_id)
+        if job is None:
+            print(json.dumps({"error": f"job {args.job_id} not found"}))
+            return 1
+        result = UserFilterService(session).evaluate(job)
+        data = {
+            "job_id": job.id,
+            "title": job.title,
+            "company": job.company,
+            "location": job.location,
+            "passed": result.passed,
+            "rejections": [
+                {
+                    "code": rejection.code.value,
+                    "detail": rejection.detail,
+                    "matched_value": rejection.matched_value,
+                }
+                for rejection in result.rejections
+            ],
+        }
+    print(json.dumps(data, indent=2, sort_keys=True, default=str))
     return 0
 
 

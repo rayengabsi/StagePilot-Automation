@@ -66,6 +66,7 @@ class LinkedInNotifyResult:
     fetched: int = 0
     duplicates: int = 0
     rejected: int = 0
+    filtered: int = 0
     matched_total: int = 0
     above_threshold: int = 0
     already_notified: int = 0
@@ -81,6 +82,7 @@ class LinkedInNotifyResult:
             "fetched": self.fetched,
             "duplicates": self.duplicates,
             "rejected": self.rejected,
+            "filtered": self.filtered,
             "matched_total": self.matched_total,
             "above_threshold": self.above_threshold,
             "already_notified": self.already_notified,
@@ -170,6 +172,7 @@ class LinkedInNotifyService:
             fetched=pipeline_result.fetched,
             duplicates=pipeline_result.duplicates,
             rejected=pipeline_result.rejected,
+            filtered=pipeline_result.filtered,
         )
         self._stages.stage(
             "parse",
@@ -177,6 +180,7 @@ class LinkedInNotifyService:
             inserted=pipeline_result.inserted,
             duplicates=pipeline_result.duplicates,
             rejected=pipeline_result.rejected,
+            filtered=pipeline_result.filtered,
         )
         self._stages.stage(
             "match",
@@ -240,6 +244,7 @@ class LinkedInNotifyService:
             fetched=pipeline_result.fetched,
             duplicates=pipeline_result.duplicates,
             rejected=pipeline_result.rejected,
+            filtered=pipeline_result.filtered,
             matched_total=pipeline_result.matched_total,
             above_threshold=len(above),
             already_notified=already,
