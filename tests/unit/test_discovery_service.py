@@ -160,3 +160,22 @@ def _create_session() -> Session:
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)()
+
+
+def test_discovery_metrics_error_column_supports_long_text() -> None:
+    """The error column must support long exceptions (>500 chars)."""
+    session = _create_session()
+    long_error_msg = "X" * 2000
+
+    metric = DiscoveryMetricRecord(
+        run_id="test-run", provider="test", status="failed", error=long_error_msg
+    )
+    session.add(metric)
+    session.commit()
+
+    fetched = session.scalar(
+        select(DiscoveryMetricRecord).where(DiscoveryMetricRecord.run_id == "test-run")
+    )
+    assert fetched is not None
+    assert fetched.error == long_error_msg
+    assert len(fetched.error) == 2000
