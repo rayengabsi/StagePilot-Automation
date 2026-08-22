@@ -374,6 +374,8 @@ class SchedulerService:
         self._state.request_stop()
         if pid is not None and pid != os.getpid():
             self._signal_process(pid)
+        else:
+            self._stop_event.set()
         logger.info("scheduler_stop_requested", extra={"pid": pid})
         return {
             "stopping": True,
