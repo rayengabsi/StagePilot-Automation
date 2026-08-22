@@ -35,8 +35,14 @@ def get_profile(session: Session = Depends(get_db)) -> ProfileResponse:  # noqa:
     service = _build_profile_service(session)
     try:
         profile = service.get_current_profile()
+    except APIError:
+        raise
     except Exception as exc:
-        raise APIError("profile_not_found", str(exc), status=404) from exc
+        raise APIError(
+            "profile_not_found",
+            "Failed to load profile.",
+            status=404,
+        ) from exc
 
     data = profile.to_dict()
     completeness = service.get_completeness()
