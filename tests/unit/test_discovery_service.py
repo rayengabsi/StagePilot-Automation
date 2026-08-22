@@ -155,6 +155,161 @@ def test_discovery_reports_rejection_metrics() -> None:
     assert len(summary.rejection_breakdown) >= 2
 
 
+class _MixedQualityConnector:
+    """Returns a mix of valid and malformed jobs to test isolation."""
+
+    source_type = JobSourceType.RSS_FEED
+
+    def fetch(self, _source: JobSourceConfig) -> list[DiscoveredJob]:
+        return [
+            DiscoveredJob(
+                external_id="job-valid-1",
+                url="https://example.com/jobs/valid-1",
+                title="Software Internship",
+                company="GoodCorp",
+                location="Remote",
+                description="Build APIs",
+                raw_payload={"id": "job-valid-1"},
+                discovered_at=utc_now(),
+            ),
+            DiscoveredJob(
+                external_id="job-malformed",
+                url="https://example.com/jobs/malformed",
+                title="Staff Engineer",
+                company="BadDataCorp",
+                location="x" * 500,
+                description="Oversized location field",
+                raw_payload={"id": "job-malformed"},
+                discovered_at=utc_now(),
+            ),
+            DiscoveredJob(
+                external_id="job-valid-2",
+                url="https://example.com/jobs/valid-2",
+                title="Data Analyst",
+                company="AnotherCorp",
+                location="New York",
+                description="Analyze data",
+                raw_payload={"id": "job-valid-2"},
+                discovered_at=utc_now(),
+            ),
+        ]
+
+
+def test_malformed_job_does_not_abort_discovery() -> None:
+    """One oversized field must be rejected while other valid jobs are still inserted."""
+    session = _create_session()
+    session.add(
+        JobSource(
+            name="MixedSource",
+            type=JobSourceType.RSS_FEED.value,
+            base_url="https://example.com/rss.xml",
+            config_json={},
+            is_active=True,
+        )
+    )
+    session.commit()
+    service = DiscoveryService(
+        session=session,
+        connector_registry=ConnectorRegistry([_MixedQualityConnector()]),
+        normalizer=JobNormalizationService(),
+        matching_service=_build_matching_service(session),
+    )
+
+    summary = service.run_once()
+
+    assert summary.fetched_count == 3
+    assert summary.inserted_count == 2
+    assert summary.invalid_count == 1
+    assert summary.failed_sources_count == 0
+    assert session.scalar(select(func.count()).select_from(Job)) == 2
+
+
+def test_source_not_marked_failed_for_invalid_job() -> None:
+    """A single invalid job should not cause the source to be marked as failed."""
+    session = _create_session()
+    session.add(
+        JobSource(
+            name="MixedSource",
+            type=JobSourceType.RSS_FEED.value,
+            base_url="https://example.com/rss.xml",
+            config_json={},
+            is_active=True,
+        )
+    )
+    session.commit()
+    service = DiscoveryService(
+        session=session,
+        connector_registry=ConnectorRegistry([_MixedQualityConnector()]),
+        normalizer=JobNormalizationService(),
+        matching_service=_build_matching_service(session),
+    )
+
+    summary = service.run_once()
+
+    metrics = session.scalars(select(DiscoveryMetricRecord)).all()
+    assert len(metrics) == 1
+    assert metrics[0].status == "ok"
+    assert metrics[0].invalid == 1
+    assert len(summary.source_errors) == 0
+
+
+def test_session_usable_after_malformed_job() -> None:
+    """The DB session must remain usable after rejecting a malformed job."""
+    session = _create_session()
+    session.add(
+        JobSource(
+            name="MixedSource",
+            type=JobSourceType.RSS_FEED.value,
+            base_url="https://example.com/rss.xml",
+            config_json={},
+            is_active=True,
+        )
+    )
+    session.commit()
+    service = DiscoveryService(
+        session=session,
+        connector_registry=ConnectorRegistry([_MixedQualityConnector()]),
+        normalizer=JobNormalizationService(),
+        matching_service=_build_matching_service(session),
+    )
+
+    first = service.run_once()
+    second = service.run_once()
+
+    assert first.invalid_count == 1
+    assert first.inserted_count == 2
+    assert second.duplicate_count == 2
+    assert second.inserted_count == 0
+    assert session.scalar(select(func.count()).select_from(Job)) == 2
+
+
+def test_oversized_location_not_committed_to_db() -> None:
+    """A job with an oversized location must not be persisted at all."""
+    session = _create_session()
+    session.add(
+        JobSource(
+            name="MixedSource",
+            type=JobSourceType.RSS_FEED.value,
+            base_url="https://example.com/rss.xml",
+            config_json={},
+            is_active=True,
+        )
+    )
+    session.commit()
+    service = DiscoveryService(
+        session=session,
+        connector_registry=ConnectorRegistry([_MixedQualityConnector()]),
+        normalizer=JobNormalizationService(),
+        matching_service=_build_matching_service(session),
+    )
+
+    service.run_once()
+
+    jobs = session.scalars(select(Job)).all()
+    locations = [j.location for j in jobs]
+    assert all(loc is None or len(loc) <= 255 for loc in locations)
+
+
 def _create_session() -> Session:
     """Create an isolated in-memory SQLAlchemy session."""
     engine = create_engine("sqlite+pysqlite:///:memory:")

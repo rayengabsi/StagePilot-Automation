@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import ClassVar
 
 from bs4 import BeautifulSoup
 
@@ -10,6 +11,15 @@ from app.domain.jobs.errors import JobNormalizationError
 
 class JobNormalizationService:
     """Normalize discovered job listings into canonical job records."""
+
+    _MAX_LENGTHS: ClassVar[dict[str, int]] = {
+        "title": 500,
+        "company": 255,
+        "location": 255,
+        "department": 255,
+        "employment_type": 100,
+        "remote_status": 50,
+    }
 
     def normalize(self, job: DiscoveredJob) -> NormalizedJob:
         """Normalize one discovered job."""
@@ -21,7 +31,7 @@ class JobNormalizationService:
         if not url:
             raise JobNormalizationError("Discovered job is missing a URL.")
 
-        return NormalizedJob(
+        normalized = NormalizedJob(
             external_id=self._clean_optional_text(job.external_id),
             url=url,
             title=title,
@@ -34,6 +44,17 @@ class JobNormalizationService:
             employment_type=self._clean_optional_text(job.employment_type),
             remote_status=self._clean_optional_text(job.remote_status),
         )
+        self._validate_field_lengths(normalized)
+        return normalized
+
+    def _validate_field_lengths(self, job: NormalizedJob) -> None:
+        """Reject jobs whose fields exceed the database column limits."""
+        for field_name, max_len in self._MAX_LENGTHS.items():
+            value: str | None = getattr(job, field_name)
+            if value is not None and len(value) > max_len:
+                raise JobNormalizationError(
+                    f"Field '{field_name}' exceeds maximum length of {max_len}"
+                )
 
     def _clean_optional_html(self, value: str | None) -> str | None:
         """Clean optional HTML-rich text into readable plain text."""
