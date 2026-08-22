@@ -362,6 +362,10 @@ class SchedulerService:
     # Status and shutdown
     # ------------------------------------------------------------------
 
+    def is_enabled(self) -> bool:
+        """Return True if the scheduler is enabled in configuration."""
+        return self._config.enabled
+
     def status_snapshot(self) -> dict[str, Any]:
         """Report configuration and last-run state for `scheduler status`."""
         running, pid = self._state.is_running()

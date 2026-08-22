@@ -50,6 +50,22 @@ def start_scheduler(
     ``start()`` is a blocking loop; we run it in a background thread so the
     HTTP response returns immediately.
     """
+    svc = SchedulerService()
+    if not svc.is_enabled():
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "code": "scheduler_disabled",
+                    "message": (
+                        "Scheduler is disabled in config/scheduler.toml. "
+                        "Set enabled = true, then try again."
+                    ),
+                }
+            },
+        )
     minutes = None
     if body:
         minutes = body.get("interval_minutes")

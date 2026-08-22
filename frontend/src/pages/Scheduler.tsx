@@ -36,8 +36,14 @@ export default function Scheduler() {
       await api.scheduler.start(interval)
       setMsg('Started')
     } catch (e: unknown) {
-      const err = e instanceof Error ? e.message : 'Start failed'
-      setMsg(err)
+      let msg = 'Start failed'
+      if (e instanceof Error) {
+        try {
+          const parsed = JSON.parse(e.message.replace(/^API \d+: /, ''))
+          msg = parsed?.detail?.error?.message ?? parsed?.detail ?? e.message
+        } catch { msg = e.message }
+      }
+      setMsg(msg)
     }
     setBusy(false); refresh()
   }
