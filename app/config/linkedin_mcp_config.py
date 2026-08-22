@@ -151,6 +151,16 @@ def _resolve_command(value: str) -> str:
     return str(_REPO_ROOT / path)
 
 
+def _is_windows() -> bool:
+    """Return True when running on Windows.
+
+    Extracted as a helper so tests can monkeypatch the platform check without
+    touching the global ``os.name`` attribute (which breaks ``pathlib.Path``
+    dispatch on Linux).
+    """
+    return os.name == "nt"
+
+
 def playwright_browsers_path() -> str:
     """Return the directory where Patchright/Playwright browsers are installed.
 
@@ -165,7 +175,7 @@ def playwright_browsers_path() -> str:
     )
     if override:
         return os.path.expanduser(override)
-    if os.name == "nt":
+    if _is_windows():
         local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
         return str(Path(local) / "ms-playwright")
     return str(Path.home() / ".cache" / "ms-playwright")

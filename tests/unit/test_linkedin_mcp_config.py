@@ -103,22 +103,29 @@ def test_bootstrap_options_load_from_toml(tmp_path: Path) -> None:
 def test_playwright_browsers_path_windows_default(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.config.linkedin_mcp_config import playwright_browsers_path
 
-    monkeypatch.setattr("app.config.linkedin_mcp_config.os.name", "nt")
+    monkeypatch.setattr("app.config.linkedin_mcp_config._is_windows", lambda: True)
     monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\me\AppData\Local")
     monkeypatch.delenv("PLAYWRIGHT_BROWSERS_PATH", raising=False)
     monkeypatch.delenv("LINKEDIN_MCP_BROWSERS_PATH", raising=False)
 
-    assert Path(playwright_browsers_path()) == Path(r"C:\Users\me\AppData\Local") / "ms-playwright"
+    result = playwright_browsers_path()
+    # Build expected using Path (not PurePosixPath) so separator matches the
+    # platform where the test runs — both sides use the same Path subclass.
+    expected = str(Path(r"C:\Users\me\AppData\Local") / "ms-playwright")
+    assert result == expected
 
 
 def test_playwright_browsers_path_windows_fallback_to_home(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.config.linkedin_mcp_config import playwright_browsers_path
 
+    monkeypatch.setattr("app.config.linkedin_mcp_config._is_windows", lambda: True)
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
     monkeypatch.delenv("PLAYWRIGHT_BROWSERS_PATH", raising=False)
     monkeypatch.delenv("LINKEDIN_MCP_BROWSERS_PATH", raising=False)
 
-    assert Path(playwright_browsers_path()) == Path.home() / "AppData" / "Local" / "ms-playwright"
+    result = playwright_browsers_path()
+    expected = str(Path.home() / "AppData" / "Local" / "ms-playwright")
+    assert result == expected
 
 
 def test_playwright_browsers_path_honors_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -126,4 +133,6 @@ def test_playwright_browsers_path_honors_override(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setenv("LINKEDIN_MCP_BROWSERS_PATH", "~/custom-browsers")
 
-    assert Path(playwright_browsers_path()) == Path.home() / "custom-browsers"
+    result = playwright_browsers_path()
+    # Wrap both sides in Path() so separators normalise to the running platform.
+    assert Path(result) == Path.home() / "custom-browsers"
