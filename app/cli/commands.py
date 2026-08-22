@@ -858,21 +858,37 @@ def _build_parser() -> argparse.ArgumentParser:
     p_once = pipeline_subparsers.add_parser("once", help="Run the pipeline once (alias for run).")
     p_once.set_defaults(handler=_handle_pipeline_once)
 
-    scheduler_parser = subparsers.add_parser("scheduler", help="Manage the pipeline scheduler.")
+    scheduler_parser = subparsers.add_parser(
+        "scheduler", help="Manage the automated LinkedIn notification scheduler."
+    )
     scheduler_subparsers = scheduler_parser.add_subparsers(dest="scheduler_command")
 
-    s_run = scheduler_subparsers.add_parser("run", help="Run the pipeline once via scheduler.")
-    s_run.set_defaults(handler=_handle_scheduler_run)
+    s_status = scheduler_subparsers.add_parser(
+        "status", help="Show scheduler configuration and last-run status."
+    )
+    s_status.set_defaults(handler=_handle_scheduler_status)
 
-    s_start = scheduler_subparsers.add_parser("start", help="Start the scheduler loop (blocking).")
+    s_once = scheduler_subparsers.add_parser(
+        "once", help="Execute the existing LinkedIn notification pipeline once."
+    )
+    s_once.set_defaults(handler=_handle_scheduler_once)
+
+    s_start = scheduler_subparsers.add_parser(
+        "start", help="Start the recurring scheduler loop (blocking)."
+    )
     s_start.add_argument(
         "--interval",
-        type=str,
-        default="daily",
-        choices=["hourly", "every_6_hours", "daily"],
-        help="Run interval (default: daily).",
+        type=_positive_int,
+        default=None,
+        metavar="MINUTES",
+        help="Interval override in minutes (default: configured interval_minutes).",
     )
     s_start.set_defaults(handler=_handle_scheduler_start)
+
+    s_stop = scheduler_subparsers.add_parser(
+        "stop", help="Request a clean shutdown of a running scheduler."
+    )
+    s_stop.set_defaults(handler=_handle_scheduler_stop)
 
     return parser
 
@@ -1184,22 +1200,58 @@ def _execute_pipeline(_args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
-def _handle_scheduler_run(_args: argparse.Namespace, settings: Settings) -> int:
+def _positive_int(value: str) -> int:
+    """Argparse type for strictly positive integers."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{value!r} is not an integer") from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError(f"{value!r} must be >= 1")
+    return parsed
+
+
+def _handle_scheduler_status(_args: argparse.Namespace, settings: Settings) -> int:
     from app.services.scheduler_service import SchedulerService
 
     svc = SchedulerService(settings=settings)
-    result = svc.run_once()
-    print(json.dumps(result, indent=2))
+    print(json.dumps(svc.status_snapshot(), indent=2, default=str))
     return 0
 
 
-def _handle_scheduler_start(args: argparse.Namespace, settings: Settings) -> int:
-    from app.services.scheduler_service import ScheduleInterval, SchedulerService
+def _handle_scheduler_once(_args: argparse.Namespace, settings: Settings) -> int:
+    from app.services.scheduler_service import SchedulerService
 
-    interval_str = getattr(args, "interval", "daily")
-    interval = ScheduleInterval(interval_str)
     svc = SchedulerService(settings=settings)
-    svc.start(interval)
+    outcome = svc.run_once()
+    print(json.dumps(outcome, indent=2, default=str))
+    result = outcome.get("result") or {}
+    if outcome.get("status") == "auth_required":
+        message = result.get("message") if isinstance(result, dict) else None
+        print(message or "LinkedIn session expired; login required.", file=sys.stderr)
+        return 2
+    return 0 if outcome.get("success") else 1
+
+
+def _handle_scheduler_start(args: argparse.Namespace, settings: Settings) -> int:
+    from app.services.scheduler_service import SchedulerNotEnabledError, SchedulerService
+
+    svc = SchedulerService(settings=settings)
+    interval = getattr(args, "interval", None)
+    try:
+        svc.start(interval_minutes=interval)
+    except SchedulerNotEnabledError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    return 0
+
+
+def _handle_scheduler_stop(_args: argparse.Namespace, settings: Settings) -> int:
+    from app.services.scheduler_service import SchedulerService
+
+    svc = SchedulerService(settings=settings)
+    outcome = svc.request_stop()
+    print(json.dumps(outcome, indent=2, default=str))
     return 0
 
 

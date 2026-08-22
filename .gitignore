@@ -14,3 +14,4 @@ data/resumes/generated/*
 data/ai_audit/*
 data/linkedin/*
 !data/**/.gitkeep
+data/scheduler/*

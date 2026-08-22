@@ -1,0 +1,9 @@
+[scheduler]
+# The scheduler orchestrates the existing LinkedIn notify pipeline
+# (CV/profile -> LinkedIn MCP -> discovery -> user filter -> matching ->
+# deduplication -> Telegram) on a fixed interval.
+#
+# Continuous scheduling stays disabled until explicitly enabled here;
+# `stagepilot scheduler once` always works for QA regardless of this flag.
+enabled = false
+interval_minutes = 30
