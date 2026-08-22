@@ -8,10 +8,16 @@ export default function Scheduler() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [interval, setInterval] = useState<number>(
+    () => (status?.interval_minutes as number) ?? 30,
+  )
 
   const refresh = () => {
-    api.scheduler.status().then((s) => { setStatus(s); setLoading(false) })
-      .catch(() => { setError('Failed to load status'); setLoading(false) })
+    api.scheduler.status().then((s) => {
+      setStatus(s)
+      setLoading(false)
+      if (s.interval_minutes != null) setInterval(s.interval_minutes as number)
+    }).catch(() => { setError('Failed to load status'); setLoading(false) })
   }
 
   useEffect(refresh, [])
@@ -26,7 +32,13 @@ export default function Scheduler() {
   }
   const doStart = async () => {
     setBusy(true); setMsg(null); setError(null)
-    try { await api.scheduler.start(); setMsg('Started') } catch { setMsg('Start failed') }
+    try {
+      await api.scheduler.start(interval)
+      setMsg('Started')
+    } catch (e: unknown) {
+      const err = e instanceof Error ? e.message : 'Start failed'
+      setMsg(err)
+    }
     setBusy(false); refresh()
   }
   const doStop = async () => {
@@ -48,12 +60,23 @@ export default function Scheduler() {
         <StatCard label="Last Run" value={(status?.last_run_status as string) ?? '—'} hint={(status?.last_run_at as string) ?? ''} />
       </div>
       <div style={{ marginTop: 24, display: 'flex', gap: 12, alignItems: 'center' }}>
+        <label style={{ fontSize: 14, color: '#374151', fontWeight: 600 }}>
+          Interval (min):
+          <input
+            type="number"
+            min={1}
+            value={interval}
+            onChange={(e) => setInterval(Math.max(1, Number(e.target.value) || 1))}
+            disabled={busy || status?.running === true}
+            style={intervalInput}
+          />
+        </label>
         <button onClick={doOnce} disabled={busy} style={btn}>
           {busy ? 'Running…' : 'Run Once'}
         </button>
         <button onClick={doStart} disabled={busy} style={{ ...btn, background: '#16a34a', color: '#fff' }}>Start</button>
         <button onClick={doStop} disabled={busy} style={{ ...btn, background: '#ef4444', color: '#fff' }}>Stop</button>
-        {msg && <span style={{ fontSize: 13, color: msg.includes('failed') || msg.includes('error') ? '#ef4444' : '#16a34a' }}>{msg}</span>}
+        {msg && <span style={{ fontSize: 13, color: msg.includes('failed') || msg.includes('error') || msg.includes('disabled') ? '#ef4444' : '#16a34a' }}>{msg}</span>}
       </div>
     </div>
   )
@@ -68,4 +91,8 @@ const btn = {
 const errorBox = {
   padding: 12, background: '#fef2f2', border: '1px solid #fecaca',
   borderRadius: 8, color: '#dc2626', fontSize: 14, marginBottom: 16,
+}
+const intervalInput = {
+  marginLeft: 8, padding: '6px 10px', borderRadius: 4,
+  border: '1px solid #d1d5db', fontSize: 14, width: 64,
 }
