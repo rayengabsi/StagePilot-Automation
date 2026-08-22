@@ -890,6 +890,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     s_stop.set_defaults(handler=_handle_scheduler_stop)
 
+    api_parser = subparsers.add_parser("api", help="Start the StagePilot HTTP API server.")
+    api_parser.add_argument("--host", type=str, default="127.0.0.1", help="Bind address.")
+    api_parser.add_argument("--port", type=int, default=8000, help="Port to listen on.")
+    api_parser.add_argument("--reload", action="store_true", help="Enable auto-reload (dev).")
+    api_parser.set_defaults(handler=_handle_api)
+
     return parser
 
 
@@ -1252,6 +1258,13 @@ def _handle_scheduler_stop(_args: argparse.Namespace, settings: Settings) -> int
     svc = SchedulerService(settings=settings)
     outcome = svc.request_stop()
     print(json.dumps(outcome, indent=2, default=str))
+    return 0
+
+
+def _handle_api(args: argparse.Namespace, _settings: Settings) -> int:
+    from app.api.runner import run_api
+
+    run_api(host=args.host, port=args.port, reload=args.reload)
     return 0
 
 
