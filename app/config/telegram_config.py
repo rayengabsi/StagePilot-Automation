@@ -23,6 +23,17 @@ class TelegramConfig:
     delete_message_on_timeout: bool = True
     timeout_seconds: int = 30
 
+    def __repr__(self) -> str:
+        """Mask the bot_token to prevent accidental secret leakage."""
+        if self.bot_token:
+            token_display = f"'{self.bot_token[:4]}***{self.bot_token[-4:]}'"
+        else:
+            token_display = "''"  # noqa: S105
+        return (
+            f"TelegramConfig(bot_token={token_display}, "
+            f"allowed_chat_ids={self.allowed_chat_ids!r}, ...)"
+        )
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TelegramConfig:
         bot = data.get("bot", {})

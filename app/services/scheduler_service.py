@@ -24,6 +24,7 @@ import ctypes
 import json
 import logging
 import os
+import re
 import signal
 import sys
 import threading
@@ -47,6 +48,22 @@ logger = logging.getLogger(__name__)
 STOP_POLL_SECONDS = 5.0
 _SUCCESS_STATUSES = frozenset({"ok", "no_jobs"})
 _STATE_VERSION = 1
+
+_TOKEN_RE = re.compile(
+    r"\b\d{8,10}:[A-Za-z0-9_/-]{30,60}\b"  # Telegram-style tokens (may include /)
+    r"|\b[A-Za-z0-9][A-Za-z0-9_-]{30,}\b"  # generic long secrets (with _ or -)
+)
+
+
+def _sanitize_error(exc: Exception) -> str:
+    """Return a safe error message string, stripping any embedded tokens.
+
+    Exception messages from third-party libraries (e.g. python-telegram-bot)
+    may include diagnostic data that contains secrets.  This helper redacts
+    token-like patterns before the message is returned to API consumers.
+    """
+    raw = str(exc)
+    return _TOKEN_RE.sub("[REDACTED]", raw)
 
 
 class SchedulerNotEnabledError(RuntimeError):
@@ -226,7 +243,7 @@ class SchedulerService:
                 outcome = {
                     "status": "error",
                     "success": False,
-                    "result": {"status": "error", "message": str(exc)},
+                    "result": {"status": "error", "message": _sanitize_error(exc)},
                 }
             duration = round(self._clock() - started, 3)
             result_payload = outcome.get("result")
