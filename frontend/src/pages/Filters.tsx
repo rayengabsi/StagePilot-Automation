@@ -25,6 +25,8 @@ export default function Filters() {
   const [editing, setEditing] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api.filters.get().then((f) => {
@@ -38,7 +40,8 @@ export default function Filters() {
       initial.salary_max = String(f.salary_max ?? '')
       initial.unknown_data_policy = String(f.unknown_data_policy ?? 'accept')
       setEditing(initial)
-    })
+      setLoading(false)
+    }).catch(() => { setError('Failed to load filters'); setLoading(false) })
   }, [])
 
   const handleSave = async () => {
@@ -56,13 +59,17 @@ export default function Filters() {
     body.salary_max = editing.salary_max ? Number(editing.salary_max) : null
     body.unknown_data_policy = editing.unknown_data_policy || 'accept'
     try {
-      await api.filters.update(body)
+      const result = await api.filters.update(body)
+      setFilters(result)
       setMsg('Saved!')
     } catch {
       setMsg('Save failed')
     }
     setSaving(false)
   }
+
+  if (error) return <div style={errorBox}>{error}</div>
+  if (loading) return <p style={{ color: '#64748b' }}>Loading…</p>
 
   return (
     <div>
@@ -74,7 +81,7 @@ export default function Filters() {
             <input
               style={input}
               value={editing[key] ?? ''}
-              onChange={(e) => setEditing({ ...editing, [key]: e.target.value })}
+              onChange={(e) => { setEditing({ ...editing, [key]: e.target.value }); setMsg(null) }}
               placeholder="comma-separated"
             />
           </label>
@@ -84,7 +91,7 @@ export default function Filters() {
           <select
             style={input}
             value={editing.remote_only ?? 'false'}
-            onChange={(e) => setEditing({ ...editing, remote_only: e.target.value })}
+            onChange={(e) => { setEditing({ ...editing, remote_only: e.target.value }); setMsg(null) }}
           >
             <option value="false">No</option>
             <option value="true">Yes</option>
@@ -96,7 +103,7 @@ export default function Filters() {
             style={input}
             type="number"
             value={editing.salary_min ?? ''}
-            onChange={(e) => setEditing({ ...editing, salary_min: e.target.value })}
+            onChange={(e) => { setEditing({ ...editing, salary_min: e.target.value }); setMsg(null) }}
           />
         </label>
         <label style={field}>
@@ -105,7 +112,7 @@ export default function Filters() {
             style={input}
             type="number"
             value={editing.salary_max ?? ''}
-            onChange={(e) => setEditing({ ...editing, salary_max: e.target.value })}
+            onChange={(e) => { setEditing({ ...editing, salary_max: e.target.value }); setMsg(null) }}
           />
         </label>
         <label style={field}>
@@ -113,7 +120,7 @@ export default function Filters() {
           <select
             style={input}
             value={editing.unknown_data_policy ?? 'accept'}
-            onChange={(e) => setEditing({ ...editing, unknown_data_policy: e.target.value })}
+            onChange={(e) => { setEditing({ ...editing, unknown_data_policy: e.target.value }); setMsg(null) }}
           >
             <option value="accept">accept</option>
             <option value="reject">reject</option>
@@ -131,27 +138,15 @@ export default function Filters() {
 }
 
 const title = { fontSize: 24, fontWeight: 700, color: '#0f172a', marginBottom: 24 }
-const form = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-  gap: 12,
-}
+const form = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }
 const field = { display: 'flex', flexDirection: 'column' as const, gap: 4 }
 const label = { fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' as const }
-const input = {
-  padding: '8px 12px',
-  border: '1px solid #e2e8f0',
-  borderRadius: 6,
-  fontSize: 14,
-  background: '#fff',
-}
+const input = { padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 14, background: '#fff' }
 const saveBtn = {
-  padding: '8px 20px',
-  borderRadius: 6,
-  border: 'none',
-  background: '#2563eb',
-  color: '#fff',
-  cursor: 'pointer',
-  fontWeight: 600,
-  fontSize: 14,
+  padding: '8px 20px', borderRadius: 6, border: 'none',
+  background: '#2563eb', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 14,
+}
+const errorBox = {
+  padding: 12, background: '#fef2f2', border: '1px solid #fecaca',
+  borderRadius: 8, color: '#dc2626', fontSize: 14,
 }
