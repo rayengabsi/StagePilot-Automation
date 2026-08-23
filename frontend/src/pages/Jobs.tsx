@@ -1,5 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Table from '../components/Table'
+import Pagination from '../components/Pagination'
+import PageHeader from '../components/PageHeader'
+import LoadingState from '../components/LoadingState'
+import ErrorState from '../components/ErrorState'
+import EmptyState from '../components/EmptyState'
 import { api } from '../api/client'
 
 interface Job {
@@ -7,10 +12,12 @@ interface Job {
   title: string
   company: string | null
   location: string | null
+  url: string
   employment_type: string | null
   seniority: string | null
+  remote_status: string | null
   posted_at: string | null
-  url: string
+  created_at: string | null
 }
 
 const PAGE_SIZE = 25
@@ -22,69 +29,87 @@ export default function Jobs() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
+  const loadJobs = useCallback(async () => {
     setLoading(true)
     setError(null)
-    api.jobs({ limit: PAGE_SIZE, offset })
-      .then((res) => {
-        setItems(res.items as unknown as Job[])
-        setTotal(res.total)
-        setLoading(false)
-      })
-      .catch(() => {
-        setError('Failed to load jobs')
-        setLoading(false)
-      })
+    try {
+      const res = await api.jobs({ limit: PAGE_SIZE, offset })
+      setItems(res.items as unknown as Job[])
+      setTotal(res.total)
+    } catch {
+      setError('Failed to load jobs')
+    } finally {
+      setLoading(false)
+    }
   }, [offset])
 
-  const hasNext = offset + PAGE_SIZE < total
+  useEffect(() => { loadJobs() }, [loadJobs])
 
   return (
     <div>
-      <h1 style={title}>Jobs</h1>
-      {error && <div style={errorBox}>{error}</div>}
-      {loading ? (
-        <p style={{ color: '#64748b' }}>Loading…</p>
-      ) : (
+      <PageHeader
+        title="Jobs"
+        description={`${total} jobs discovered from LinkedIn`}
+      />
+
+      {error && <ErrorState message={error} onRetry={loadJobs} />}
+
+      {!error && loading && <LoadingState rows={5} />}
+
+      {!error && !loading && items.length === 0 && (
+        <EmptyState
+          title="No jobs discovered yet"
+          description="Run the LinkedIn discovery pipeline to start finding jobs."
+        />
+      )}
+
+      {!error && !loading && items.length > 0 && (
         <>
           <Table
-            columns={['ID', 'Title', 'Company', 'Location', 'Type', 'Seniority', 'Posted']}
-            rows={items.map((j) => [
-              j.id,
-              <a href={j.url} target="_blank" rel="noopener noreferrer" style={link}>{j.title}</a>,
-              j.company,
-              j.location,
-              j.employment_type,
-              j.seniority,
-              j.posted_at ? new Date(j.posted_at).toLocaleDateString() : '—',
-            ])}
+            columns={[
+              { key: 'title', label: 'Title', render: (v, row) => (
+                <a href={row.url as string} target="_blank" rel="noopener noreferrer" style={styles.link}>
+                  {String(v)}
+                </a>
+              )},
+              { key: 'company', label: 'Company' },
+              { key: 'location', label: 'Location' },
+              { key: 'employment_type', label: 'Type' },
+              { key: 'seniority', label: 'Seniority' },
+              { key: 'remote_status', label: 'Remote' },
+              { key: 'posted_at', label: 'Posted', render: (v) => (
+                v ? new Date(v as string).toLocaleDateString() : '—'
+              )},
+            ]}
+            rows={items.map((j) => ({
+              id: j.id,
+              title: j.title,
+              company: j.company,
+              location: j.location,
+              url: j.url,
+              employment_type: j.employment_type,
+              seniority: j.seniority,
+              remote_status: j.remote_status,
+              posted_at: j.posted_at,
+            }))}
             empty="No jobs found"
           />
-          <div style={paging}>
-            <button disabled={offset === 0} onClick={() => setOffset(offset - PAGE_SIZE)} style={btn}>
-              ← Previous
-            </button>
-            <span style={{ fontSize: 13, color: '#64748b' }}>
-              {total === 0 ? '0' : `${offset + 1}–${Math.min(offset + PAGE_SIZE, total)}`} of {total}
-            </span>
-            <button disabled={!hasNext} onClick={() => setOffset(offset + PAGE_SIZE)} style={btn}>
-              Next →
-            </button>
-          </div>
+          <Pagination
+            offset={offset}
+            total={total}
+            pageSize={PAGE_SIZE}
+            onPageChange={setOffset}
+          />
         </>
       )}
     </div>
   )
 }
 
-const title = { fontSize: 24, fontWeight: 700, color: '#0f172a', marginBottom: 24 }
-const paging = { display: 'flex', alignItems: 'center', gap: 16, marginTop: 16, justifyContent: 'center' }
-const btn = {
-  padding: '6px 14px', borderRadius: 6, border: '1px solid #e2e8f0',
-  background: '#fff', cursor: 'pointer', fontSize: 13,
-}
-const link = { color: '#2563eb', textDecoration: 'none', cursor: 'pointer' }
-const errorBox = {
-  padding: 12, background: '#fef2f2', border: '1px solid #fecaca',
-  borderRadius: 8, color: '#dc2626', fontSize: 14, marginBottom: 16,
+const styles: Record<string, React.CSSProperties> = {
+  link: {
+    color: 'var(--blue-600)',
+    textDecoration: 'none',
+    fontWeight: 'var(--weight-medium)' as unknown as number,
+  },
 }
