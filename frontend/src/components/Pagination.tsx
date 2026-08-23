@@ -1,3 +1,5 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+
 interface Props {
   offset: number
   total: number
@@ -19,9 +21,7 @@ export default function Pagination({ offset, total, pageSize, onPageChange }: Pr
         style={{ ...styles.btn, ...(!hasPrev ? styles.btnDisabled : {}) }}
         aria-label="Previous page"
       >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-          <path d="M9 3L5 7l4 4" />
-        </svg>
+        <ChevronLeft size={14} />
         Previous
       </button>
       <span style={styles.info}>
@@ -34,9 +34,7 @@ export default function Pagination({ offset, total, pageSize, onPageChange }: Pr
         aria-label="Next page"
       >
         Next
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-          <path d="M5 3l4 4-4 4" />
-        </svg>
+        <ChevronRight size={14} />
       </button>
     </div>
   )
@@ -57,21 +55,21 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 'var(--space-1)',
     padding: 'var(--space-2) var(--space-3)',
     borderRadius: 'var(--radius-md)',
-    border: '1px solid var(--border-default)',
-    background: 'var(--surface-card)',
-    color: 'var(--gray-700)',
+    border: '1px solid var(--sp-border)',
+    background: 'var(--sp-surface-card)',
+    color: 'var(--sp-text-secondary)',
     fontSize: 'var(--text-sm)',
-    fontWeight: 'var(--weight-medium)' as unknown as number,
+    fontWeight: 'var(--weight-medium)',
     cursor: 'pointer',
     transition: 'all var(--transition-fast)',
   },
   btnDisabled: {
-    opacity: 0.4,
+    opacity: 0.3,
     cursor: 'not-allowed',
   },
   info: {
     fontSize: 'var(--text-sm)',
-    color: 'var(--gray-500)',
+    color: 'var(--sp-text-muted)',
     fontVariantNumeric: 'tabular-nums',
   },
 }

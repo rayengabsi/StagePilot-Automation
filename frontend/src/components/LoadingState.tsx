@@ -18,23 +18,23 @@ export default function LoadingState({ rows = 5 }: Props) {
 const styles: Record<string, React.CSSProperties> = {
   container: {
     display: 'flex',
-    flexDirection: 'column' as const,
+    flexDirection: 'column',
     gap: 'var(--space-3)',
     padding: 'var(--space-4) 0',
   },
   row: {
     display: 'flex',
-    flexDirection: 'column' as const,
+    flexDirection: 'column',
     gap: 'var(--space-2)',
     padding: 'var(--space-4)',
-    background: 'var(--surface-card)',
+    background: 'var(--sp-surface-card)',
     borderRadius: 'var(--radius-lg)',
-    border: '1px solid var(--border-default)',
+    border: '1px solid var(--sp-border)',
   },
   line: {
     height: 14,
     borderRadius: 'var(--radius-sm)',
-    background: 'linear-gradient(90deg, var(--gray-100) 25%, var(--gray-200) 50%, var(--gray-100) 75%)',
+    background: 'linear-gradient(90deg, var(--sp-surface-raised) 25%, var(--sp-surface-hover) 50%, var(--sp-surface-raised) 75%)',
     backgroundSize: '200% 100%',
     animation: 'shimmer 1.5s infinite',
   },

@@ -1,3 +1,6 @@
+import { motion } from 'framer-motion'
+import { AlertCircle, RefreshCw } from 'lucide-react'
+
 interface Props {
   message?: string
   onRetry?: () => void
@@ -5,59 +8,69 @@ interface Props {
 
 export default function ErrorState({ message = 'Something went wrong', onRetry }: Props) {
   return (
-    <div style={styles.container}>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+      style={styles.container}
+    >
       <div style={styles.icon}>
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="var(--red-500)" strokeWidth="1.5">
-          <circle cx="16" cy="16" r="12" />
-          <path d="M16 10v8M16 22v0" strokeLinecap="round" />
-        </svg>
+        <AlertCircle size={28} strokeWidth={1.5} />
       </div>
-      <h3 style={styles.title}>Error</h3>
+      <h3 style={styles.title}>Something went wrong</h3>
       <p style={styles.message}>{message}</p>
       {onRetry && (
         <button onClick={onRetry} style={styles.btn}>
+          <RefreshCw size={14} />
           Try again
         </button>
       )}
-    </div>
+    </motion.div>
   )
 }
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
     display: 'flex',
-    flexDirection: 'column' as const,
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 'var(--space-12) var(--space-8)',
-    textAlign: 'center' as const,
-    background: 'var(--surface-card)',
-    borderRadius: 'var(--radius-lg)',
-    border: '1px solid var(--red-100)',
+    textAlign: 'center',
+    background: 'var(--sp-surface-card)',
+    borderRadius: 'var(--radius-xl)',
+    border: '1px solid var(--sp-red-border)',
   },
   icon: {
     marginBottom: 'var(--space-3)',
+    color: 'var(--sp-red)',
+    opacity: 0.8,
   },
   title: {
-    fontSize: 'var(--text-md)',
-    fontWeight: 'var(--weight-semibold)' as unknown as number,
-    color: 'var(--gray-900)',
+    fontSize: 'var(--text-lg)',
+    fontWeight: 'var(--weight-semibold)',
+    color: 'var(--sp-text-primary)',
     marginBottom: 'var(--space-2)',
   },
   message: {
-    fontSize: 'var(--text-base)',
-    color: 'var(--gray-500)',
+    fontSize: 'var(--text-md)',
+    color: 'var(--sp-text-secondary)',
     maxWidth: 360,
-    marginBottom: 'var(--space-4)',
+    marginBottom: 'var(--space-5)',
+    lineHeight: 'var(--leading-relaxed)',
   },
   btn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 'var(--space-2)',
     padding: 'var(--space-2) var(--space-4)',
     borderRadius: 'var(--radius-md)',
-    border: '1px solid var(--border-default)',
-    background: 'var(--surface-card)',
-    color: 'var(--gray-700)',
+    border: '1px solid var(--sp-border-strong)',
+    background: 'var(--sp-surface-raised)',
+    color: 'var(--sp-text-primary)',
     fontSize: 'var(--text-sm)',
-    fontWeight: 'var(--weight-medium)' as unknown as number,
+    fontWeight: 'var(--weight-medium)',
     cursor: 'pointer',
+    transition: 'all var(--transition-fast)',
   },
 }

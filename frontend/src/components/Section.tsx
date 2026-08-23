@@ -1,3 +1,5 @@
+import { motion } from 'framer-motion'
+
 interface Props {
   title?: string
   description?: string
@@ -7,7 +9,12 @@ interface Props {
 
 export default function Section({ title, description, actions, children }: Props) {
   return (
-    <section style={styles.section}>
+    <motion.section
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      style={styles.section}
+    >
       {(title || actions) && (
         <div style={styles.header}>
           <div>
@@ -18,7 +25,7 @@ export default function Section({ title, description, actions, children }: Props
         </div>
       )}
       {children}
-    </section>
+    </motion.section>
   )
 }
 
@@ -34,14 +41,14 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 'var(--space-4)',
   },
   title: {
-    fontSize: 'var(--text-md)',
-    fontWeight: 'var(--weight-semibold)' as unknown as number,
-    color: 'var(--gray-900)',
-    lineHeight: 1.3,
+    fontSize: 'var(--text-lg)',
+    fontWeight: 'var(--weight-semibold)',
+    color: 'var(--sp-text-primary)',
+    lineHeight: 'var(--leading-tight)',
   },
   description: {
     fontSize: 'var(--text-sm)',
-    color: 'var(--gray-500)',
+    color: 'var(--sp-text-secondary)',
     marginTop: 'var(--space-1)',
   },
   actions: {

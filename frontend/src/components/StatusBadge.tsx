@@ -7,11 +7,11 @@ interface Props {
 }
 
 const variantStyles: Record<BadgeVariant, { bg: string; color: string; border: string; dotColor: string }> = {
-  success: { bg: 'var(--green-50)', color: 'var(--green-700)', border: 'var(--green-100)', dotColor: 'var(--green-500)' },
-  error: { bg: 'var(--red-50)', color: 'var(--red-600)', border: 'var(--red-100)', dotColor: 'var(--red-500)' },
-  warning: { bg: 'var(--amber-50)', color: 'var(--amber-600)', border: 'var(--amber-100)', dotColor: 'var(--amber-500)' },
-  info: { bg: 'var(--blue-50)', color: 'var(--blue-700)', border: 'var(--blue-100)', dotColor: 'var(--blue-500)' },
-  neutral: { bg: 'var(--gray-100)', color: 'var(--gray-600)', border: 'var(--gray-200)', dotColor: 'var(--gray-400)' },
+  success: { bg: 'var(--sp-green-dim)', color: 'var(--sp-green)', border: 'var(--sp-green-border)', dotColor: 'var(--sp-green)' },
+  error: { bg: 'var(--sp-red-dim)', color: 'var(--sp-red)', border: 'var(--sp-red-border)', dotColor: 'var(--sp-red)' },
+  warning: { bg: 'var(--sp-amber-dim)', color: 'var(--sp-amber)', border: 'var(--sp-amber-border)', dotColor: 'var(--sp-amber)' },
+  info: { bg: 'var(--sp-accent-dim)', color: 'var(--sp-accent)', border: 'var(--sp-accent-border)', dotColor: 'var(--sp-accent)' },
+  neutral: { bg: 'rgba(255, 255, 255, 0.04)', color: 'var(--sp-text-secondary)', border: 'var(--sp-border)', dotColor: 'var(--sp-text-muted)' },
 }
 
 export default function StatusBadge({ label, variant = 'neutral', dot = true }: Props) {
@@ -23,24 +23,25 @@ export default function StatusBadge({ label, variant = 'neutral', dot = true }: 
         alignItems: 'center',
         gap: 6,
         padding: '2px 10px',
-        borderRadius: 999,
-        fontSize: 'var(--text-sm)',
-        fontWeight: 'var(--weight-medium)' as unknown as number,
+        borderRadius: 'var(--radius-full)',
+        fontSize: 'var(--text-xs)',
+        fontWeight: 'var(--weight-medium)',
         background: v.bg,
         color: v.color,
         border: `1px solid ${v.border}`,
         lineHeight: 1.6,
-        whiteSpace: 'nowrap' as const,
+        whiteSpace: 'nowrap',
       }}
     >
       {dot && (
         <span
           style={{
-            width: 6,
-            height: 6,
+            width: 5,
+            height: 5,
             borderRadius: '50%',
             background: v.dotColor,
             flexShrink: 0,
+            animation: variant === 'success' ? 'pulse-dot 2s ease-in-out infinite' : undefined,
           }}
         />
       )}

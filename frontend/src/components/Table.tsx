@@ -1,3 +1,5 @@
+import { motion } from 'framer-motion'
+
 interface Column {
   key: string
   label: string
@@ -38,14 +40,14 @@ function normalizeRows(
   })
 }
 
-export default function Table({ columns: rawColumns, rows: rawRows, empty = 'No data', emptyIcon }: Props) {
+export default function Table({ columns: rawColumns, rows: rawRows, empty = 'No data', emptyIcon, onRowClick }: Props) {
   const columns = normalizeColumns(rawColumns)
   const rows = normalizeRows(rawRows, columns)
 
   if (rows.length === 0) {
     return (
       <div style={styles.emptyState}>
-        {emptyIcon || <EmptyTableIcon />}
+        {emptyIcon}
         <p style={styles.emptyText}>{empty}</p>
       </div>
     )
@@ -72,7 +74,18 @@ export default function Table({ columns: rawColumns, rows: rawRows, empty = 'No 
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} style={styles.tr}>
+            <motion.tr
+              key={i}
+              style={{
+                ...styles.tr,
+                cursor: onRowClick ? 'pointer' : undefined,
+              }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: i * 0.02, duration: 0.2 }}
+              onClick={() => onRowClick?.(row)}
+              whileHover={{ background: 'var(--sp-surface-hover)' }}
+            >
               {columns.map((col) => (
                 <td
                   key={col.key}
@@ -86,7 +99,7 @@ export default function Table({ columns: rawColumns, rows: rawRows, empty = 'No 
                     : (row[col.key] == null ? '—' : String(row[col.key]))}
                 </td>
               ))}
-            </tr>
+            </motion.tr>
           ))}
         </tbody>
       </table>
@@ -94,75 +107,54 @@ export default function Table({ columns: rawColumns, rows: rawRows, empty = 'No 
   )
 }
 
-function EmptyTableIcon() {
-  return (
-    <svg width="40" height="40" viewBox="0 0 40 40" fill="none" stroke="var(--gray-300)" strokeWidth="1.5">
-      <rect x="4" y="8" width="32" height="28" rx="3" />
-      <path d="M4 16h32M14 8v-4M26 8v-4" strokeLinecap="round" />
-    </svg>
-  )
-}
-
 const styles: Record<string, React.CSSProperties> = {
   tableWrap: {
     overflowX: 'auto',
-    background: 'var(--surface-card)',
-    borderRadius: 'var(--radius-lg)',
-    border: '1px solid var(--border-default)',
-    boxShadow: 'var(--shadow-xs)',
+    background: 'var(--sp-surface-card)',
+    borderRadius: 'var(--radius-xl)',
+    border: '1px solid var(--sp-border)',
   },
   table: {
     width: '100%',
-    borderCollapse: 'collapse' as const,
+    borderCollapse: 'collapse',
   },
   th: {
     padding: 'var(--space-3) var(--space-4)',
     fontSize: 'var(--text-xs)',
-    fontWeight: 'var(--weight-semibold)' as unknown as number,
-    color: 'var(--gray-500)',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.05em',
-    borderBottom: '1px solid var(--border-default)',
-    whiteSpace: 'nowrap' as const,
-    background: 'var(--gray-50)',
+    fontWeight: 'var(--weight-medium)',
+    color: 'var(--sp-text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: 'var(--tracking-wide)',
+    borderBottom: '1px solid var(--sp-border)',
+    whiteSpace: 'nowrap',
+    textAlign: 'left',
   },
   tr: {
-    borderBottom: '1px solid var(--border-subtle)',
+    borderBottom: '1px solid var(--sp-border)',
     transition: 'background var(--transition-fast)',
   },
   td: {
     padding: 'var(--space-3) var(--space-4)',
-    fontSize: 'var(--text-base)',
-    color: 'var(--gray-700)',
+    fontSize: 'var(--text-md)',
+    color: 'var(--sp-text-primary)',
     maxWidth: 300,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap' as const,
+    whiteSpace: 'nowrap',
   },
   emptyState: {
     display: 'flex',
-    flexDirection: 'column' as const,
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 'var(--space-12) var(--space-8)',
-    background: 'var(--surface-card)',
-    borderRadius: 'var(--radius-lg)',
-    border: '1px solid var(--border-default)',
+    background: 'var(--sp-surface-card)',
+    borderRadius: 'var(--radius-xl)',
+    border: '1px solid var(--sp-border)',
     gap: 'var(--space-3)',
   },
   emptyText: {
-    fontSize: 'var(--text-base)',
-    color: 'var(--gray-400)',
+    fontSize: 'var(--text-md)',
+    color: 'var(--sp-text-secondary)',
   },
-}
-
-/* Hover effect */
-if (typeof document !== 'undefined') {
-  const existing = document.getElementById('sp-table-hover')
-  if (!existing) {
-    const style = document.createElement('style')
-    style.id = 'sp-table-hover'
-    style.textContent = `table tbody tr:hover { background: var(--gray-50); }`
-    document.head.appendChild(style)
-  }
 }
