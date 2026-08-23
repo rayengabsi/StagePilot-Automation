@@ -26,7 +26,8 @@ See [`docs/architecture.md`](docs/architecture.md).
 - uv
 - MySQL 8.x installed locally
 - Git
-- VS Code or another editor
+- Node.js 18+ (for Web UI)
+- LinkedIn MCP server (see below)
 
 ## Setup
 
@@ -37,17 +38,77 @@ Copy-Item .env.example .env
 uv sync --all-extras --dev
 ```
 
+Edit `.env` and set:
+
+```
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+GEMINI_API_KEY=your_gemini_key_here   # optional, for AI features
+```
+
 Run database migrations:
 
 ```bash
 uv run alembic upgrade head
 ```
 
-## Run
+### LinkedIn MCP Setup
+
+The LinkedIn integration uses the `linkedin-mcp-server` package. Install and authenticate:
 
 ```bash
-uv run stagepilot
+# Install the MCP server (one-time)
+pip install linkedin-mcp-server
+
+# Authenticate with your LinkedIn session
+python -m linkedin_mcp_server --login
 ```
+
+The MCP server uses your local browser profile for authentication. No LinkedIn credentials are stored by StagePilot.
+
+### Telegram Bot Setup
+
+1. Create a bot via [@BotFather](https://t.me/BotFather) on Telegram
+2. Copy the bot token into `.env` as `TELEGRAM_BOT_TOKEN`
+3. Get your chat ID (message the bot, then check `https://api.telegram.org/bot<TOKEN>/getUpdates`)
+4. Add the chat ID to `config/telegram.toml` in `allowed_chat_ids`
+
+## Run
+
+### Backend API
+
+```bash
+uv run uvicorn app.api.app:app --reload --port 8000
+```
+
+API docs: http://localhost:8000/docs
+
+### Frontend Web UI
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:5173 in your browser.
+
+### Scheduler
+
+```bash
+# Run the pipeline once
+uv run stagepilot scheduler once
+
+# Start recurring scheduler (edit config/scheduler.toml to enable)
+uv run stagepilot scheduler start
+
+# Check status
+uv run stagepilot scheduler status
+
+# Stop a running scheduler
+uv run stagepilot scheduler stop
+```
+
+The scheduler is disabled by default in `config/scheduler.toml`. Set `enabled = true` to allow recurring runs. `scheduler once` works regardless of this setting.
 
 ## Usage
 
@@ -262,6 +323,11 @@ uv run alembic upgrade head
 
 ```
 app/
+├── api/                                  # FastAPI REST API
+│   ├── app.py                            # Application factory + CORS
+│   ├── errors.py                         # Error handlers (catch-all + domain)
+│   ├── routes/                           # health, profile, filters, scheduler, jobs, matches
+│   └── schemas.py                        # Pydantic response models
 ├── cli/
 │   └── commands.py                       # All CLI commands (+ approval + telegram)
 ├── config/
@@ -272,6 +338,8 @@ app/
 │   ├── logging.py
 │   ├── matching.py                       # Phase 4: MatchingConfig frozen dataclass + loader
 │   ├── matching.toml                     # Phase 4: scoring weights, thresholds, hard-rule toggles
+│   ├── scheduler.toml                    # Scheduler interval and enabled flag
+│   ├── scheduler_config.py               # SchedulerConfig loader
 │   ├── settings.py                       # Settings + FilterRules model + API keys
 │   ├── telegram_config.py                # Phase 7: TelegramConfig loader
 │   └── telegram.toml                     # Phase 7: Telegram bot config
@@ -360,8 +428,17 @@ app/
     ├── queue_service.py                  # Phase 7: Queue engine (5 strategies)
     ├── recommendation_service.py         # Phase 4: recommendation pipeline orchestration
     ├── resume_tailor_service.py          # Phase 5: resume tailoring
+    ├── scheduler_service.py              # Scheduler: recurring pipeline execution
     ├── snapshot_service.py               # Phase 7: Immutable snapshot creation/validation
     └── token_tracker.py                  # Phase 5: AI token usage tracking
+frontend/                                 # React + TypeScript + Vite Web UI
+├── src/
+│   ├── api/client.ts                     # API client (fetch wrapper)
+│   ├── components/                       # Table, StatCard, Sidebar
+│   ├── pages/                            # Dashboard, Jobs, Matches, Filters, Scheduler, Profile
+│   └── test/                             # Vitest unit tests
+├── package.json
+└── vite.config.ts
 ```
 
 ## Future Docker Support
