@@ -1,15 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import StatCard from '../components/StatCard'
-import StatusBadge from '../components/StatusBadge'
-import Section from '../components/Section'
+import { motion } from 'framer-motion'
+import { Briefcase, Star, User, Clock, Play, SlidersHorizontal, ArrowRight, Zap } from 'lucide-react'
 import { api } from '../api/client'
 
 interface HealthStatus {
   api: 'ok' | 'error' | 'loading'
   scheduler: 'running' | 'stopped' | 'loading'
-  linkedin: string
-  telegram: string
 }
 
 interface Metrics {
@@ -19,14 +16,20 @@ interface Metrics {
   profileName: string | null
 }
 
+const stagger = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.06 } },
+}
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 8 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] as const } },
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
-  const [health, setHealth] = useState<HealthStatus>({
-    api: 'loading', scheduler: 'loading', linkedin: '—', telegram: '—',
-  })
-  const [metrics, setMetrics] = useState<Metrics>({
-    jobs: null, matches: null, profileScore: null, profileName: null,
-  })
+  const [health, setHealth] = useState<HealthStatus>({ api: 'loading', scheduler: 'loading' })
+  const [metrics, setMetrics] = useState<Metrics>({ jobs: null, matches: null, profileScore: null, profileName: null })
   const [scheduler, setScheduler] = useState<Record<string, unknown> | null>(null)
   const [, setLoading] = useState(true)
 
@@ -41,12 +44,11 @@ export default function Dashboard() {
           api.profile(),
         ])
 
-        setHealth((prev) => ({
-          ...prev,
+        setHealth({
           api: h.status === 'fulfilled' ? 'ok' : 'error',
           scheduler: s.status === 'fulfilled' && (s.value as Record<string, unknown>).running
             ? 'running' : 'stopped',
-        }))
+        })
 
         if (j.status === 'fulfilled') setMetrics((prev) => ({ ...prev, jobs: (j.value as { total: number }).total }))
         if (m.status === 'fulfilled') setMetrics((prev) => ({ ...prev, matches: (m.value as { total: number }).total }))
@@ -69,109 +71,152 @@ export default function Dashboard() {
   }, [])
 
   const greeting = getGreeting()
+  const isRunning = health.scheduler === 'running'
 
   return (
-    <div>
-      <div style={styles.header}>
-        <div>
-          <h1 style={styles.title}>{greeting}</h1>
-          <p style={styles.subtitle}>Here's what's happening with your job discovery pipeline.</p>
+    <motion.div variants={stagger} initial="hidden" animate="show">
+      {/* Hero */}
+      <motion.div variants={fadeUp} style={styles.hero}>
+        <div style={styles.heroContent}>
+          <h1 style={styles.greeting}>{greeting}</h1>
+          <p style={styles.heroSub}>
+            {isRunning
+              ? 'Your job discovery pipeline is running automatically.'
+              : 'Your next opportunity is waiting to be discovered.'}
+          </p>
         </div>
-      </div>
+        <button onClick={() => navigate('/scheduler')} style={styles.heroBtn}>
+          <Play size={14} />
+          Run discovery
+        </button>
+      </motion.div>
 
       {/* System Status */}
-      <Section title="System Status">
-        <div style={styles.statusGrid}>
-          <StatusRow label="API" status={health.api} />
-          <StatusRow label="Scheduler" status={health.scheduler} />
-          <StatusRow label="LinkedIn" status="ok" detail="Authenticated" />
-          <StatusRow label="Telegram" status="ok" detail="Configured" />
+      <motion.div variants={fadeUp} style={styles.statusBar}>
+        <div style={styles.statusItem}>
+          <div style={{
+            ...styles.statusDot,
+            background: health.api === 'ok' ? 'var(--sp-green)' : health.api === 'loading' ? 'var(--sp-amber)' : 'var(--sp-red)',
+          }} />
+          <span style={styles.statusLabel}>API</span>
         </div>
-      </Section>
+        <div style={styles.statusDivider} />
+        <div style={styles.statusItem}>
+          <div style={{
+            ...styles.statusDot,
+            background: isRunning ? 'var(--sp-green)' : 'var(--sp-text-muted)',
+          }} />
+          <span style={styles.statusLabel}>Scheduler {isRunning ? 'Running' : 'Stopped'}</span>
+        </div>
+        <div style={styles.statusDivider} />
+        <div style={styles.statusItem}>
+          <div style={{ ...styles.statusDot, background: 'var(--sp-green)' }} />
+          <span style={styles.statusLabel}>LinkedIn</span>
+        </div>
+        <div style={styles.statusDivider} />
+        <div style={styles.statusItem}>
+          <div style={{ ...styles.statusDot, background: 'var(--sp-green)' }} />
+          <span style={styles.statusLabel}>Telegram</span>
+        </div>
+      </motion.div>
 
-      {/* Key Metrics */}
-      <Section title="Overview">
-        <div style={styles.metricsGrid}>
-          <StatCard
-            label="Jobs Discovered"
-            value={metrics.jobs ?? '—'}
-            hint="Total in database"
-          />
-          <StatCard
-            label="Matches"
-            value={metrics.matches ?? '—'}
-            hint="Total recommendations"
-          />
-          <StatCard
-            label="Profile"
-            value={metrics.profileName ?? '—'}
-            hint={`Completeness: ${metrics.profileScore ?? '—'}%`}
-          />
-          <StatCard
-            label="Scheduler"
-            value={health.scheduler === 'running' ? 'Running' : 'Stopped'}
-            hint={scheduler ? `Interval: ${scheduler.interval_minutes ?? '—'} min` : ''}
-          />
+      {/* Metrics */}
+      <motion.div variants={fadeUp} style={styles.metricsGrid}>
+        <MetricCard icon={<Briefcase size={16} />} label="Jobs discovered" value={metrics.jobs ?? 0} color="var(--sp-accent)" />
+        <MetricCard icon={<Star size={16} />} label="Matches" value={metrics.matches ?? 0} color="var(--sp-green)" />
+        <MetricCard icon={<User size={16} />} label="Profile strength" value={`${metrics.profileScore ?? 0}%`} color="var(--sp-purple)" />
+        <MetricCard icon={<Clock size={16} />} label="Automation interval" value={scheduler ? `${scheduler.interval_minutes ?? 30}m` : '—'} color="var(--sp-amber)" />
+      </motion.div>
+
+      {/* Pipeline */}
+      <motion.div variants={fadeUp}>
+        <h2 style={styles.sectionTitle}>Pipeline</h2>
+        <div style={styles.pipeline}>
+          {['LinkedIn', 'Discovery', 'Filters', 'Matching', 'Telegram'].map((stage, i) => (
+            <div key={stage} style={styles.pipelineStage}>
+              <div style={{
+                ...styles.pipelineNode,
+                background: isRunning ? 'var(--sp-accent-dim)' : 'var(--sp-surface-raised)',
+                borderColor: isRunning ? 'var(--sp-accent-border)' : 'var(--sp-border)',
+              }}>
+                <span style={{
+                  ...styles.pipelineLabel,
+                  color: isRunning ? 'var(--sp-accent)' : 'var(--sp-text-secondary)',
+                }}>{stage}</span>
+              </div>
+              {i < 4 && (
+                <div style={{
+                  ...styles.pipelineArrow,
+                  color: isRunning ? 'var(--sp-accent)' : 'var(--sp-text-muted)',
+                }}>
+                  <ArrowRight size={14} />
+                </div>
+              )}
+            </div>
+          ))}
         </div>
-      </Section>
+      </motion.div>
 
       {/* Quick Actions */}
-      <Section title="Quick Actions">
+      <motion.div variants={fadeUp}>
+        <h2 style={styles.sectionTitle}>Quick actions</h2>
         <div style={styles.actionsGrid}>
           <ActionCard
-            title="Run Pipeline"
-            description="Execute the LinkedIn discovery pipeline once"
+            title="Run pipeline"
+            description="Execute discovery once"
             onClick={() => navigate('/scheduler')}
-            icon={<PlayIcon />}
+            icon={<Zap size={18} />}
+            color="var(--sp-accent)"
           />
           <ActionCard
-            title="Configure Filters"
-            description="Set up job discovery preferences"
+            title="Configure filters"
+            description="Set discovery preferences"
             onClick={() => navigate('/filters')}
-            icon={<FilterIcon />}
+            icon={<SlidersHorizontal size={18} />}
+            color="var(--sp-purple)"
           />
           <ActionCard
-            title="View Matches"
-            description="Review your latest job recommendations"
+            title="View matches"
+            description="Review recommendations"
             onClick={() => navigate('/matches')}
-            icon={<StarIcon />}
+            icon={<Star size={18} />}
+            color="var(--sp-green)"
           />
         </div>
-      </Section>
-    </div>
+      </motion.div>
+    </motion.div>
   )
 }
 
-function StatusRow({ label, status, detail }: { label: string; status: string; detail?: string }) {
-  const variant = status === 'ok' || status === 'running'
-    ? 'success'
-    : status === 'error' ? 'error'
-    : status === 'loading' ? 'info' : 'neutral'
-  const text = status === 'loading' ? 'Checking…'
-    : status === 'ok' || status === 'running' ? 'Connected'
-    : status === 'error' ? 'Error'
-    : status === 'stopped' ? 'Stopped'
-    : status
-
-  return (
-    <div style={styles.statusRow}>
-      <span style={styles.statusLabel}>{label}</span>
-      <StatusBadge label={detail || text} variant={variant} />
-    </div>
-  )
-}
-
-function ActionCard({ title, description, onClick, icon }: {
-  title: string; description: string; onClick: () => void; icon: React.ReactNode
+function MetricCard({ icon, label, value, color }: {
+  icon: React.ReactNode; label: string; value: string | number; color: string
 }) {
   return (
-    <button onClick={onClick} style={styles.actionCard}>
-      <span style={styles.actionIcon}>{icon}</span>
-      <div>
+    <div style={styles.metricCard}>
+      <div style={{ ...styles.metricIcon, color, background: `${color}15` }}>{icon}</div>
+      <div style={styles.metricValue}>{value}</div>
+      <div style={styles.metricLabel}>{label}</div>
+    </div>
+  )
+}
+
+function ActionCard({ title, description, onClick, icon, color }: {
+  title: string; description: string; onClick: () => void; icon: React.ReactNode; color: string
+}) {
+  return (
+    <motion.button
+      onClick={onClick}
+      style={styles.actionCard}
+      whileHover={{ borderColor: 'rgba(255, 255, 255, 0.10)', background: 'var(--sp-surface-hover)' }}
+      whileTap={{ scale: 0.98 }}
+    >
+      <div style={{ ...styles.actionIcon, color }}>{icon}</div>
+      <div style={styles.actionContent}>
         <div style={styles.actionTitle}>{title}</div>
         <div style={styles.actionDesc}>{description}</div>
       </div>
-    </button>
+      <ArrowRight size={14} style={{ color: 'var(--sp-text-muted)', flexShrink: 0 }} />
+    </motion.button>
   )
 }
 
@@ -182,67 +227,144 @@ function getGreeting() {
   return 'Good evening'
 }
 
-function PlayIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--blue-600)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="6,3 17,10 6,17" fill="var(--blue-100)" stroke="var(--blue-600)" />
-    </svg>
-  )
-}
-
-function FilterIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--gray-600)" strokeWidth="1.5" strokeLinecap="round">
-      <path d="M2 4h16M5 8h10M7 12h6M9 16h2" />
-    </svg>
-  )
-}
-
-function StarIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="var(--amber-500)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10 2l2.09 4.24L17 6.94l-3.5 3.41.83 4.81L10 12.77l-4.33 2.39.83-4.81L3 6.94l4.91-.7z" fill="var(--amber-100)" />
-    </svg>
-  )
-}
-
 const styles: Record<string, React.CSSProperties> = {
-  header: {
-    marginBottom: 'var(--space-8)',
+  hero: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 'var(--space-6)',
+    gap: 'var(--space-4)',
   },
-  title: {
-    fontSize: 'var(--text-xl)',
-    fontWeight: 'var(--weight-bold)' as unknown as number,
-    color: 'var(--gray-900)',
+  heroContent: { flex: 1 },
+  greeting: {
+    fontSize: 'var(--text-3xl)',
+    fontWeight: 'var(--weight-bold)',
+    color: 'var(--sp-text-primary)',
+    letterSpacing: 'var(--tracking-tight)',
+    marginBottom: 'var(--space-2)',
   },
-  subtitle: {
-    fontSize: 'var(--text-base)',
-    color: 'var(--gray-500)',
-    marginTop: 'var(--space-1)',
+  heroSub: {
+    fontSize: 'var(--text-md)',
+    color: 'var(--sp-text-secondary)',
+    lineHeight: 'var(--leading-relaxed)',
   },
-  statusGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-    gap: 'var(--space-3)',
+  heroBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 'var(--space-2)',
+    padding: 'var(--space-2-5) var(--space-5)',
+    borderRadius: 'var(--radius-lg)',
+    border: 'none',
+    background: 'var(--sp-accent)',
+    color: '#fff',
+    fontSize: 'var(--text-sm)',
+    fontWeight: 'var(--weight-semibold)',
+    cursor: 'pointer',
+    transition: 'all var(--transition-fast)',
+    whiteSpace: 'nowrap',
   },
-  statusRow: {
+  statusBar: {
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 'var(--space-3) var(--space-4)',
-    background: 'var(--surface-card)',
+    gap: 'var(--space-4)',
+    padding: 'var(--space-3) var(--space-5)',
+    background: 'var(--sp-surface-card)',
     borderRadius: 'var(--radius-lg)',
-    border: '1px solid var(--border-default)',
+    border: '1px solid var(--sp-border)',
+    marginBottom: 'var(--space-6)',
+    flexWrap: 'wrap',
+  },
+  statusItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 'var(--space-2)',
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    flexShrink: 0,
   },
   statusLabel: {
-    fontSize: 'var(--text-base)',
-    fontWeight: 'var(--weight-medium)' as unknown as number,
-    color: 'var(--gray-700)',
+    fontSize: 'var(--text-sm)',
+    color: 'var(--sp-text-secondary)',
+    fontWeight: 'var(--weight-medium)',
+  },
+  statusDivider: {
+    width: 1,
+    height: 16,
+    background: 'var(--sp-border)',
   },
   metricsGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
     gap: 'var(--space-4)',
+    marginBottom: 'var(--space-8)',
+  },
+  metricCard: {
+    background: 'var(--sp-surface-card)',
+    borderRadius: 'var(--radius-xl)',
+    padding: 'var(--space-5)',
+    border: '1px solid var(--sp-border)',
+  },
+  metricIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 'var(--radius-md)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 'var(--space-3)',
+  },
+  metricValue: {
+    fontSize: 'var(--text-2xl)',
+    fontWeight: 'var(--weight-bold)',
+    color: 'var(--sp-text-primary)',
+    lineHeight: 'var(--leading-tight)',
+    fontVariantNumeric: 'tabular-nums',
+  },
+  metricLabel: {
+    fontSize: 'var(--text-xs)',
+    color: 'var(--sp-text-muted)',
+    marginTop: 'var(--space-1)',
+    fontWeight: 'var(--weight-medium)',
+  },
+  sectionTitle: {
+    fontSize: 'var(--text-lg)',
+    fontWeight: 'var(--weight-semibold)',
+    color: 'var(--sp-text-primary)',
+    marginBottom: 'var(--space-4)',
+  },
+  pipeline: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 'var(--space-2)',
+    padding: 'var(--space-5)',
+    background: 'var(--sp-surface-card)',
+    borderRadius: 'var(--radius-xl)',
+    border: '1px solid var(--sp-border)',
+    marginBottom: 'var(--space-8)',
+    overflowX: 'auto',
+  },
+  pipelineStage: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 'var(--space-2)',
+  },
+  pipelineNode: {
+    padding: 'var(--space-2) var(--space-4)',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid',
+    whiteSpace: 'nowrap',
+  },
+  pipelineLabel: {
+    fontSize: 'var(--text-sm)',
+    fontWeight: 'var(--weight-medium)',
+  },
+  pipelineArrow: {
+    display: 'flex',
+    alignItems: 'center',
+    flexShrink: 0,
   },
   actionsGrid: {
     display: 'grid',
@@ -254,33 +376,34 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: 'var(--space-4)',
     padding: 'var(--space-4) var(--space-5)',
-    background: 'var(--surface-card)',
-    borderRadius: 'var(--radius-lg)',
-    border: '1px solid var(--border-default)',
+    background: 'var(--sp-surface-card)',
+    borderRadius: 'var(--radius-xl)',
+    border: '1px solid var(--sp-border)',
     cursor: 'pointer',
-    textAlign: 'left' as const,
-    transition: 'all var(--transition-fast)',
+    textAlign: 'left',
     width: '100%',
+    transition: 'all var(--transition-fast)',
+    color: 'inherit',
   },
   actionIcon: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: 40,
-    height: 40,
-    borderRadius: 'var(--radius-lg)',
-    background: 'var(--gray-50)',
-    border: '1px solid var(--border-default)',
+    width: 36,
+    height: 36,
+    borderRadius: 'var(--radius-md)',
+    background: 'rgba(255, 255, 255, 0.04)',
     flexShrink: 0,
   },
+  actionContent: { flex: 1 },
   actionTitle: {
-    fontSize: 'var(--text-base)',
-    fontWeight: 'var(--weight-semibold)' as unknown as number,
-    color: 'var(--gray-900)',
+    fontSize: 'var(--text-md)',
+    fontWeight: 'var(--weight-semibold)',
+    color: 'var(--sp-text-primary)',
   },
   actionDesc: {
     fontSize: 'var(--text-sm)',
-    color: 'var(--gray-500)',
+    color: 'var(--sp-text-muted)',
     marginTop: 2,
   },
 }
