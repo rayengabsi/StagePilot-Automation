@@ -2,26 +2,60 @@ interface StatCardProps {
   label: string
   value: string | number
   hint?: string
+  icon?: React.ReactNode
+  trend?: 'up' | 'down' | 'neutral'
 }
 
-export default function StatCard({ label, value, hint }: StatCardProps) {
+export default function StatCard({ label, value, hint, icon }: StatCardProps) {
   return (
-    <div style={card}>
-      <div style={labelStyle}>{label}</div>
-      <div style={valueStyle}>{value}</div>
-      {hint && <div style={hintStyle}>{hint}</div>}
+    <div style={styles.card}>
+      <div style={styles.header}>
+        <span style={styles.label}>{label}</span>
+        {icon && <span style={styles.icon}>{icon}</span>}
+      </div>
+      <div style={styles.value}>{value}</div>
+      {hint && <div style={styles.hint}>{hint}</div>}
     </div>
   )
 }
 
-const card = {
-  background: '#fff',
-  borderRadius: 10,
-  padding: '20px 24px',
-  border: '1px solid #e2e8f0',
-  minWidth: 180,
+const styles: Record<string, React.CSSProperties> = {
+  card: {
+    background: 'var(--surface-card)',
+    borderRadius: 'var(--radius-lg)',
+    padding: 'var(--space-5)',
+    border: '1px solid var(--border-default)',
+    boxShadow: 'var(--shadow-xs)',
+    transition: 'box-shadow var(--transition-fast)',
+    minWidth: 0,
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 'var(--space-2)',
+  },
+  label: {
+    fontSize: 'var(--text-sm)',
+    fontWeight: 'var(--weight-medium)' as unknown as number,
+    color: 'var(--gray-500)',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.05em',
+  },
+  icon: {
+    color: 'var(--gray-400)',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  value: {
+    fontSize: 'var(--text-xl)',
+    fontWeight: 'var(--weight-bold)' as unknown as number,
+    color: 'var(--gray-900)',
+    lineHeight: 1.2,
+  },
+  hint: {
+    fontSize: 'var(--text-xs)',
+    color: 'var(--gray-400)',
+    marginTop: 'var(--space-1)',
+  },
 }
-
-const labelStyle = { fontSize: 13, color: '#64748b', marginBottom: 4, fontWeight: 500 }
-const valueStyle = { fontSize: 28, fontWeight: 700, color: '#0f172a' }
-const hintStyle = { fontSize: 12, color: '#94a3b8', marginTop: 4 }
