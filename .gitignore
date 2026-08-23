@@ -8,6 +8,7 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+vite.log
 data/master_profile/*.json
 data/resumes/master/*
 data/resumes/generated/*
