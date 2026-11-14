@@ -1,40 +1,135 @@
 # StagePilot Automation
 
-AI-powered, human-in-the-loop internship automation platform.
+AI-assisted, **human-in-the-loop** internship search and application platform.
 
-## Status
+StagePilot discovers job offers, removes duplicates, filters and ranks them against your profile, and prepares tailored application documents. **Nothing is ever submitted without explicit human approval.**
 
-- Phase 0 — Foundation: scaffold, project config, DB, CI, lint — complete.
-- Phase 1 — Job Discovery: RSS/Atom ingestion, normalization, CLI — complete.
-- Phase 2 — Filtering & Duplicates: deterministic hard filters, 5-strategy duplicate detection, `job_matches` persistence, rejection/duplicate metrics — complete.
-- Phase 3 — Master Profile Engine: resume PDF import, deterministic normalization, field validation, completeness scoring, versioned persistence, JSON export — complete.
-- Phase 4 — Recommendation Engine: hard-rule gating, 8-category similarity scoring, weighted aggregation, ranking, feedback — complete.
-- Phase 5 — AI Intelligence Layer: provider abstraction (ABC + Gemini), 4 versioned prompt templates, AI orchestrator, 4 services (explanation, resume tailoring, cover letter, email), deterministic output validation, token tracking — complete.
-- Phase 6 — Resume Rendering & Document Generation Engine: data-driven template system (5 templates), theme system with TOML overrides, PDF generation (reportlab) with selectable text and ATS-friendly formatting, DOCX generation (python-docx) with heading hierarchy, CLI render subcommands — complete.
-- Phase 7 — Human Approval Platform: ApplicationPackage entity with immutable snapshots, 8-state approval state machine, ApprovalService (UI-independent, owns all business logic), queue engine with 5 strategies, audit log, snapshot engine, Telegram bot with inline buttons (thin adapter, zero business logic), CLI approval subcommands, 4 new database tables, 63 tests — complete.
+<!-- TODO: add screenshots (save them in docs/images/) and keep these lines -->
+![Dashboard](docs/images/dashboard.png)
+![Approval flow on Telegram](docs/images/telegram-approval.png)
+
+<!-- TODO: add the CI badge once you confirm the workflow file name, e.g.:
+[![CI](https://github.com/rayengabsi/StagePilot-Automation/actions/workflows/ci.yml/badge.svg)](https://github.com/rayengabsi/StagePilot-Automation/actions) -->
+
+**Stack:** Python 3.11, FastAPI, SQLAlchemy + Alembic, MySQL, React, TypeScript, Vite, Telegram Bot API, Gemini API
+**Quality:** 1,000+ automated backend tests, frontend tests (Vitest), Ruff lint and format, GitHub Actions CI
+
+---
+
+## Table of contents
+
+- [Key features](#key-features)
+- [How it works](#how-it-works)
+- [Data collection](#data-collection)
+- [Architecture](#architecture)
+- [Responsible use](#responsible-use)
+- [Project status](#project-status)
+- [Requirements](#requirements)
+- [Setup](#setup)
+- [Running the application](#running-the-application)
+- [Usage](#usage)
+- [Tests and code quality](#tests-and-code-quality)
+- [Project structure](#project-structure)
+- [Engineering principles](#engineering-principles)
+- [Roadmap](#roadmap)
+- [License](#license)
+
+---
+
+## Key features
+
+- **Job discovery** from RSS/Atom feeds and LinkedIn (through an MCP server), with normalization into a common job model.
+- **Duplicate detection** with 5 strategies tried in priority order (external ID, canonical URL, raw content hash, normalized hash, fuzzy title + company).
+- **Deterministic hard filters** across 5 categories. Every decision is persisted in the database with its reason, never only in logs.
+- **Master Profile engine**: resume PDF import, normalization, validation, completeness scoring, versioned persistence and JSON export.
+- **Recommendation engine**: hard-rule gating, 8-category similarity scoring, weighted aggregation, ranking and user feedback. Weights and thresholds are configurable in TOML.
+- **AI intelligence layer** (Gemini, behind a provider abstraction): match explanations, resume tailoring, cover letters and email drafts, with versioned prompt templates, deterministic output validation (including prompt-injection detection) and token tracking.
+- **Document rendering**: resume and cover letter in PDF (ATS-friendly, selectable text) and DOCX, with 5 data-driven templates and TOML theme overrides.
+- **Human approval platform**: immutable application snapshots, an 8-state approval state machine, a queue engine with 5 strategies, an audit log, a Telegram bot with inline buttons and CLI commands.
+- **Resilient scheduler**: recurring runs, overlap protection, failure recovery, graceful shutdown and persistent state.
+- **Web UI** (React + TypeScript): dashboard, jobs, matches, filters, scheduler and profile pages.
+
+## How it works
+
+```
+ Sources (RSS/Atom, LinkedIn MCP)
+              │
+              ▼
+        Ingestion ──► 1. Normalization
+                      2. Duplicate detection
+                      3. Hard filters (rule-based)
+                      4. Profile matching
+                      5. Scoring and ranking
+                      6. Notifications (Telegram)
+                                │
+                                ▼
+         AI layer ──► tailored documents ──► Human approval ──► (you decide)
+```
+
+Each stage persists its output, so every decision can be inspected and replayed.
+
+## Data collection
+
+Job sources are implemented as **pluggable connectors** registered in `app/infrastructure/job_sources/registry.py`. Today the project ships an RSS/Atom connector (`rss_feed_connector.py`) and a LinkedIn integration through the `linkedin-mcp-server` package. New sources, including HTML crawlers, can be added by implementing a connector and registering it, without changing the domain or service layers.
 
 ## Architecture
 
-The project is a modular monolith using Clean Architecture and Domain-Driven Design boundaries. The database contains 20+ tables spanning jobs (Phase 1–2), job matching (Phase 2), profiles (Phase 3), recommendations & feedback (Phase 4), AI token usage (Phase 5), and approval system (Phase 7). The rendering engine (Phase 6) operates from in-memory profile data.
+StagePilot is a **modular monolith** built with Clean Architecture and Domain-Driven Design boundaries:
 
-See [`docs/architecture.md`](docs/architecture.md).
+- `domain/` holds entities, enums and business rules, with no framework dependencies.
+- `services/` holds application logic. `ApprovalService` owns all approval business logic and is independent of any UI.
+- `infrastructure/` holds adapters (AI providers, parsers, job sources, Telegram). The Telegram bot is a thin adapter with no business logic.
+- `api/`, `cli/` and `frontend/` are delivery layers on top of the same services.
+
+The database has 20+ tables covering jobs, job matches, profiles, recommendations and feedback, AI token usage and the approval system. The rendering engine works from in-memory profile data.
+
+See `docs/architecture.md` for details.
+
+## Responsible use
+
+- No application is submitted without explicit human approval (Phase 7).
+- The LinkedIn integration uses your own local browser session. StagePilot stores no LinkedIn credentials.
+- Use it in line with the terms of the platforms you connect to.
+
+## Project status
+
+| Phase | Scope | Status |
+|---|---|---|
+| 0 | Foundation: scaffold, project config, DB, CI, lint | Complete |
+| 1 | Job discovery: RSS/Atom ingestion, normalization, CLI | Complete |
+| 2 | Filtering and duplicates: hard filters, 5-strategy duplicate detection, `job_matches` persistence, metrics | Complete |
+| 3 | Master Profile engine: resume PDF import, validation, completeness scoring, versioning, JSON export | Complete |
+| 4 | Recommendation engine: hard-rule gating, 8-category scoring, aggregation, ranking, feedback | Complete |
+| 5 | AI intelligence layer: provider abstraction, 4 prompt templates, orchestrator, 4 services, output validation, token tracking | Complete |
+| 6 | Resume rendering and document generation: 5 templates, themes, PDF and DOCX, CLI | Complete |
+| 7 | Human approval platform: snapshots, 8-state machine, queue engine, audit log, Telegram bot (63 tests) | Complete |
+
+Detailed documentation for each phase is in `docs/` (for example `docs/phase-2-filtering-and-duplicates.md`, `docs/phase-3-master-profile.md`, `docs/phase-4-recommendation-engine.md`, `docs/phase-5-ai-intelligence-layer.md`).
 
 ## Requirements
 
-- Windows 11
 - Python 3.11+
-- uv
+- [uv](https://docs.astral.sh/uv/)
 - MySQL 8.x installed locally
 - Git
-- Node.js 18+ (for Web UI)
-- LinkedIn MCP server (see below)
+- Node.js 18+ (for the web UI)
+- LinkedIn MCP server (optional, see below)
+
+> Developed and tested on Windows 11. The bash commands below are the equivalents for macOS/Linux, which have not been verified yet.
 
 ## Setup
 
-PowerShell:
+**PowerShell (Windows):**
 
 ```powershell
 Copy-Item .env.example .env
+uv sync --all-extras --dev
+```
+
+**Bash (macOS/Linux):**
+
+```bash
+cp .env.example .env
 uv sync --all-extras --dev
 ```
 
@@ -45,13 +140,13 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 GEMINI_API_KEY=your_gemini_key_here   # optional, for AI features
 ```
 
-Run database migrations:
+Run the database migrations:
 
 ```bash
 uv run alembic upgrade head
 ```
 
-### LinkedIn MCP Setup
+### LinkedIn MCP setup
 
 The LinkedIn integration uses the `linkedin-mcp-server` package. Install and authenticate:
 
@@ -65,14 +160,14 @@ python -m linkedin_mcp_server --login
 
 The MCP server uses your local browser profile for authentication. No LinkedIn credentials are stored by StagePilot.
 
-### Telegram Bot Setup
+### Telegram bot setup
 
-1. Create a bot via [@BotFather](https://t.me/BotFather) on Telegram
-2. Copy the bot token into `.env` as `TELEGRAM_BOT_TOKEN`
-3. Get your chat ID (message the bot, then check `https://api.telegram.org/bot<TOKEN>/getUpdates`)
-4. Add the chat ID to `config/telegram.toml` in `allowed_chat_ids`
+1. Create a bot with @BotFather on Telegram.
+2. Copy the bot token into `.env` as `TELEGRAM_BOT_TOKEN`.
+3. Get your chat ID: message the bot, then open `https://api.telegram.org/bot<TOKEN>/getUpdates`.
+4. Add the chat ID to `allowed_chat_ids` in `config/telegram.toml`.
 
-## Run
+## Running the application
 
 ### Backend API
 
@@ -82,7 +177,7 @@ uv run uvicorn app.api.app:app --reload --port 8000
 
 API docs: http://localhost:8000/docs
 
-### Frontend Web UI
+### Frontend web UI
 
 ```bash
 cd frontend
@@ -98,7 +193,7 @@ Open http://localhost:5173 in your browser.
 # Run the pipeline once
 uv run stagepilot scheduler once
 
-# Start recurring scheduler (edit config/scheduler.toml to enable)
+# Start the recurring scheduler (set enabled = true in config/scheduler.toml)
 uv run stagepilot scheduler start
 
 # Check status
@@ -108,148 +203,75 @@ uv run stagepilot scheduler status
 uv run stagepilot scheduler stop
 ```
 
-The scheduler is disabled by default in `config/scheduler.toml`. Set `enabled = true` to allow recurring runs. `scheduler once` works regardless of this setting.
+The scheduler is disabled by default in `config/scheduler.toml`. `scheduler once` works regardless of this setting.
 
 ## Usage
 
-### Profile Management
-
-Import a resume PDF, normalize, validate, and persist it:
+### Profile management
 
 ```bash
+# Import a resume PDF, normalize, validate and persist it
 uv run stagepilot profile import path/to/resume.pdf
-```
 
-Show the current profile in JSON:
-
-```bash
+# Show the current profile as JSON
 uv run stagepilot profile show
-```
 
-Export the current profile to a JSON file:
-
-```bash
+# Export the current profile to a JSON file
 uv run stagepilot profile export --output profile.json
-```
 
-List all profile versions (newest first):
-
-```bash
+# List all profile versions (newest first)
 uv run stagepilot profile versions
 ```
 
-### Job Discovery & Filtering
-
-Add an RSS or Atom source:
+### Job discovery and filtering
 
 ```bash
+# Add an RSS or Atom source
 uv run stagepilot sources add-rss --name "Example Jobs" --url "https://example.com/jobs.xml"
-```
 
-List configured sources:
-
-```bash
+# List configured sources
 uv run stagepilot sources list
-```
 
-Run discovery once:
-
-```bash
+# Run discovery once
 uv run stagepilot discover
-```
 
-Backfill Phase 2 match records for existing jobs:
-
-```bash
+# Backfill match records for existing jobs
 uv run stagepilot discover --backfill
 ```
 
-Phase 2 adds a deterministic matching pipeline after ingestion:
+After ingestion, a deterministic matching pipeline runs:
 
-- **Hard Filters** — each job is evaluated against five filter categories. Rejected jobs are recorded in `job_matches` with the reason breakdown.
-- **Duplicate Detection** — five strategies (external ID, canonical URL, raw content hash, normalized hash, fuzzy title+company) are tried in priority order.
-- **Metrics** — each discovery run reports `accepted`, `rejected`, `semantic_duplicates`, `rejection_breakdown`, and `duplicate_strategy_breakdown`.
+- **Hard filters:** each job is evaluated against five filter categories. Rejected jobs are recorded in `job_matches` with the reason breakdown.
+- **Duplicate detection:** five strategies are tried in priority order.
+- **Metrics:** each discovery run reports `accepted`, `rejected`, `semantic_duplicates`, `rejection_breakdown` and `duplicate_strategy_breakdown`.
 
-All matching decisions are persisted in the `job_matches` table — never only in logs.
+All matching decisions are persisted in the `job_matches` table. See `docs/phase-2-filtering-and-duplicates.md`.
 
-See [`docs/phase-2-filtering-and-duplicates.md`](docs/phase-2-filtering-and-duplicates.md) for detailed documentation.
-
-Phase 3 profile documentation:
-
-See [`docs/phase-3-master-profile.md`](docs/phase-3-master-profile.md) for detailed documentation.
-
-Phase 4 recommendation engine documentation:
-
-See [`docs/phase-4-recommendation-engine.md`](docs/phase-4-recommendation-engine.md) for detailed documentation.
-
-Phase 5 AI intelligence layer documentation:
-
-See [`docs/phase-5-ai-intelligence-layer.md`](docs/phase-5-ai-intelligence-layer.md) for detailed documentation.
-
-### Document Rendering
-
-Phase 6 adds professional document generation from your Master Profile:
+### Recommendation engine
 
 ```bash
-# Render resume as PDF (default template: modern)
-uv run stagepilot render resume
+# Run recommendations against all qualified jobs
+uv run stagepilot recommend
 
-# Render resume as DOCX
-uv run stagepilot render resume --format docx
+# Top 5 recommendations in table format
+uv run stagepilot recommend --top 5
 
-# Render with a different template in all formats
-uv run stagepilot render resume --template executive --format all
+# Output raw JSON
+uv run stagepilot recommend --top 10 --json
 
-# Render a cover letter
-uv run stagepilot render cover-letter
+# List persisted recommendations
+uv run stagepilot recommend --list
 
-# List available templates
-uv run stagepilot render templates
-
-# Preview template configuration
-uv run stagepilot render preview --template modern
+# Submit feedback on a recommendation
+uv run stagepilot feedback 5 --reason wrong_country
+uv run stagepilot feedback 12 --reason wrong_technologies --comment "Uses Java but I only work with Python"
 ```
 
-Generated documents go to `output/resume.pdf`, `output/resume.docx`, `output/cover_letter.pdf`, `output/cover_letter.docx`.
+Matching weights, hard-rule toggles and thresholds are configured in `app/config/matching.toml`.
 
-Five templates are available: `modern`, `executive`, `minimal`, `classic`, `professional`. Templates are pure JSON — adding a new template requires zero code changes.
+### AI-powered features
 
-### Human Approval Platform
-
-Phase 7 guarantees no application is submitted without explicit human approval:
-
-```bash
-# View the approval queue
-uv run stagepilot approval queue
-
-# List all packages
-uv run stagepilot approval list
-
-# Approve a package
-uv run stagepilot approval approve 1 --actor "admin" --comment "Looks great"
-
-# Reject a package
-uv run stagepilot approval reject 2 --actor "admin" --comment "Wrong field"
-
-# Request revision
-uv run stagepilot approval revise 3 --actor "admin" --comment "Update resume"
-
-# Skip a package
-uv run stagepilot approval skip 4
-
-# Archive a package
-uv run stagepilot approval archive 5
-
-# View package history
-uv run stagepilot approval history 1
-
-# Run the Telegram bot
-uv run stagepilot telegram run
-```
-
-### AI-Powered Features
-
-Phase 5 adds optional AI features for generating human-readable communication from structured recommendation data:
+AI features are optional and require `GEMINI_API_KEY` in `.env`. All AI outputs pass through deterministic validation (prompt-injection detection, empty or too-short rejection, JSON schema checks) before they are returned.
 
 ```bash
 # Generate a match explanation
@@ -271,55 +293,75 @@ uv run stagepilot ai usage --limit 10
 uv run stagepilot ai prompts
 ```
 
-AI features require a configured API key in `.env` (`GEMINI_API_KEY`). All AI outputs pass through deterministic validation (prompt injection detection, empty/short rejection, JSON schema checks) before being returned.
-
-### Recommendation Engine
-
-Phase 4 adds deterministic job matching and scoring:
+### Document rendering
 
 ```bash
-# Run recommendations against all qualified jobs
-uv run stagepilot recommend
+# Render the resume as PDF (default template: modern)
+uv run stagepilot render resume
 
-# Top 5 recommendations in table format
-uv run stagepilot recommend --top 5
+# Render the resume as DOCX
+uv run stagepilot render resume --format docx
 
-# Output raw JSON
-uv run stagepilot recommend --top 10 --json
+# Render with a different template in all formats
+uv run stagepilot render resume --template executive --format all
 
-# List persisted recommendations
-uv run stagepilot recommend --list
+# Render a cover letter
+uv run stagepilot render cover-letter
 
-# Submit feedback on a recommendation
-uv run stagepilot feedback 5 --reason wrong_country
-uv run stagepilot feedback 12 --reason wrong_technologies --comment "Uses Java but I only work with Python"
+# List available templates
+uv run stagepilot render templates
+
+# Preview a template configuration
+uv run stagepilot render preview --template modern
 ```
 
-All matching weights, hard-rule toggles, and thresholds are configured in `app/config/matching.toml`.
+Documents are written to `output/`. Five templates are available: modern, executive, minimal, classic and professional. Templates are pure JSON, so adding a new one requires no code changes.
 
-## Test
+### Human approval platform
 
 ```bash
+# View the approval queue
+uv run stagepilot approval queue
+
+# List all packages
+uv run stagepilot approval list
+
+# Approve, reject, request a revision, skip or archive a package
+uv run stagepilot approval approve 1 --actor "admin" --comment "Looks great"
+uv run stagepilot approval reject 2 --actor "admin" --comment "Wrong field"
+uv run stagepilot approval revise 3 --actor "admin" --comment "Update resume"
+uv run stagepilot approval skip 4
+uv run stagepilot approval archive 5
+
+# View a package's history
+uv run stagepilot approval history 1
+
+# Run the Telegram bot
+uv run stagepilot telegram run
+```
+
+## Tests and code quality
+
+```bash
+# Run the backend test suite
 uv run pytest
-```
 
-## Lint And Format
-
-```bash
+# Lint and format
 uv run ruff check .
 uv run ruff format .
+
+# Frontend tests
+cd frontend && npm test
 ```
 
-## Migrations
-
-Run migrations with:
+Database migrations:
 
 ```bash
 uv run alembic revision --autogenerate -m "message"
 uv run alembic upgrade head
 ```
 
-## Project Structure
+## Project structure
 
 ```
 app/
@@ -331,107 +373,75 @@ app/
 ├── cli/
 │   └── commands.py                       # All CLI commands (+ approval + telegram)
 ├── config/
-│   ├── ai.toml                           # Phase 5: AI provider/feature config
-│   ├── ai_config.py                      # Phase 5: AIConfig frozen dataclass + loader
-│   ├── approval.toml                     # Phase 7: Queue/snapshot config
-│   ├── approval_config.py                # Phase 7: ApprovalConfig loader
+│   ├── ai.toml                           # AI provider/feature config
+│   ├── ai_config.py                      # AIConfig frozen dataclass + loader
+│   ├── approval.toml                     # Queue/snapshot config
+│   ├── approval_config.py                # ApprovalConfig loader
 │   ├── logging.py
-│   ├── matching.py                       # Phase 4: MatchingConfig frozen dataclass + loader
-│   ├── matching.toml                     # Phase 4: scoring weights, thresholds, hard-rule toggles
+│   ├── matching.py                       # MatchingConfig frozen dataclass + loader
+│   ├── matching.toml                     # Scoring weights, thresholds, hard-rule toggles
 │   ├── scheduler.toml                    # Scheduler interval and enabled flag
 │   ├── scheduler_config.py               # SchedulerConfig loader
 │   ├── settings.py                       # Settings + FilterRules model + API keys
-│   ├── telegram_config.py                # Phase 7: TelegramConfig loader
-│   └── telegram.toml                     # Phase 7: Telegram bot config
+│   ├── telegram_config.py                # TelegramConfig loader
+│   └── telegram.toml                     # Telegram bot config
 ├── db/
 │   ├── base.py
 │   ├── models/
-│   │   ├── ai_usage.py                   # Phase 5: TokenUsageRecord (ai_token_usage)
-│   │   ├── approval.py                   # Phase 7: 4 ORM models
-│   │   ├── jobs.py                       # Phase 1: raw_jobs, jobs
-│   │   ├── matching.py                   # Phase 2: job_matches
-│   │   ├── profile.py                    # Phase 3: 9 ORM models
-│   │   ├── recommendation.py             # Phase 4: RecommendationRecord + FeedbackRecord
+│   │   ├── ai_usage.py                   # TokenUsageRecord (ai_token_usage)
+│   │   ├── approval.py                   # 4 ORM models
+│   │   ├── jobs.py                       # raw_jobs, jobs
+│   │   ├── matching.py                   # job_matches
+│   │   ├── profile.py                    # 9 ORM models
+│   │   ├── recommendation.py             # RecommendationRecord + FeedbackRecord
 │   │   └── __init__.py
 │   ├── repositories/
-│   │   └── approval.py                   # Phase 7: 4 repositories
+│   │   └── approval.py                   # 4 repositories
 │   └── session.py
 ├── domain/
-│   ├── ai/                               # Phase 5: AI entities, enums, errors
-│   │   ├── entities.py
-│   │   ├── enums.py
-│   │   └── errors.py
-│   ├── approval/                         # Phase 7: Approval domain
-│   │   ├── __init__.py
-│   │   ├── entities.py                   # ApplicationPackage, ApprovalEvent, ApprovalComment
-│   │   ├── enums.py                      # ApprovalState, QueueStrategy, VALID_TRANSITIONS
-│   │   ├── errors.py                     # 9 error classes
-│   │   └── package.py                    # Snapshot builder, hash, factory
-│   ├── master_profile/                   # Phase 3: MasterProfile entities, enums, errors
-│   │   ├── entities.py
-│   │   ├── enums.py
-│   │   └── errors.py
-│   ├── recommendation/                   # Phase 4: Recommendation domain, matcher, scorer, aggregator
-│   │   ├── aggregator.py
-│   │   ├── entities.py
-│   │   ├── enums.py
-│   │   ├── errors.py
-│   │   ├── matcher.py
-│   │   ├── profile_matcher.py
-│   │   └── scorer.py
-│   └── ... (other domain modules)
+│   ├── ai/                               # AI entities, enums, errors
+│   ├── approval/                         # ApplicationPackage, ApprovalEvent, state machine, snapshot builder
+│   ├── master_profile/                   # MasterProfile entities, enums, errors
+│   ├── recommendation/                   # Recommendation domain, matcher, scorer, aggregator
+│   └── ...                               # Other domain modules
 ├── infrastructure/
-│   ├── ai/                               # Phase 5: AI provider abstraction + Gemini
-│   │   ├── abstract.py                   # AIProvider (ABC)
-│   │   └── gemini_provider.py            # GeminiProvider
-│   ├── job_sources/
-│   │   ├── registry.py
-│   │   └── rss_feed_connector.py
-│   ├── parsers/                          # Phase 3: ProfileParser ABC + PDF parser
-│   │   ├── abstract.py                   # ProfileParser (ABC)
-│   │   └── pdf_parser.py                 # PDFParser (pdfplumber)
-│   └── telegram/                         # Phase 7: Telegram client (thin adapter)
-│       ├── __init__.py
-│       ├── auth.py                       # TelegramAuth (authorization)
-│       ├── bot.py                        # Bot runner
-│       ├── handlers.py                   # Command + callback handlers
-│       └── messages.py                   # Message formatting
-├── rendering/                            # Phase 6: Document generation engine
-│   ├── __init__.py
+│   ├── ai/                               # AIProvider (ABC) + GeminiProvider
+│   ├── job_sources/                      # Connector registry + RSS/Atom connector
+│   ├── parsers/                          # ProfileParser (ABC) + PDFParser (pdfplumber)
+│   └── telegram/                         # Thin adapter: auth, bot, handlers, messages
+├── rendering/                            # Document generation engine
 │   ├── abstract.py                       # DocumentRenderer (ABC)
-│   ├── assets.py                         # Font resolution
-│   ├── cover_letter_renderer.py          # Cover letter orchestration
-│   ├── docx_renderer.py                  # DOCX rendering (python-docx)
-│   ├── models.py                         # RenderContext, DocumentOutput, etc.
 │   ├── pdf_renderer.py                   # PDF rendering (reportlab)
-│   ├── renderer_factory.py               # Factory + render_document()
+│   ├── docx_renderer.py                  # DOCX rendering (python-docx)
 │   ├── resume_renderer.py                # Resume orchestration
-│   ├── template_loader.py                # TemplateDef + loader (templates/*/template.json)
-│   └── theme_loader.py                   # ThemeDef + loader (config/theme.toml)
+│   ├── cover_letter_renderer.py          # Cover letter orchestration
+│   ├── template_loader.py                # Templates (templates/*/template.json)
+│   ├── theme_loader.py                   # Themes (config/theme.toml)
+│   └── ...                               # assets, models, renderer_factory
 └── services/
-    ├── ai_orchestrator.py                # Phase 5: AI pipeline orchestrator
-    ├── approval_service.py               # Phase 7: ALL approval business logic (UI-independent)
-    ├── cover_letter_service.py           # Phase 5: cover letter generation
+    ├── approval_service.py               # ALL approval business logic (UI-independent)
+    ├── queue_service.py                  # Queue engine (5 strategies)
+    ├── snapshot_service.py               # Immutable snapshot creation/validation
     ├── discovery_service.py
+    ├── job_normalization_service.py
     ├── duplicate_detection_service.py
-    ├── email_draft_service.py            # Phase 5: email draft generation
-    ├── explanation_service.py            # Phase 5: match explanation generation
     ├── filtering_service.py
     ├── job_matching_service.py
-    ├── job_normalization_service.py
-    ├── job_source_repository.py
-    ├── output_validator.py               # Phase 5: deterministic AI output validation
-    ├── profile_normalizer.py             # Phase 3: resume text → MasterProfile
-    ├── profile_service.py                # Phase 3: import, export, versioning
-    ├── profile_validator.py              # Phase 3: validation + completeness scoring
-    ├── prompt_service.py                 # Phase 5: prompt template loading/rendering
-    ├── queue_service.py                  # Phase 7: Queue engine (5 strategies)
-    ├── recommendation_service.py         # Phase 4: recommendation pipeline orchestration
-    ├── resume_tailor_service.py          # Phase 5: resume tailoring
-    ├── scheduler_service.py              # Scheduler: recurring pipeline execution
-    ├── snapshot_service.py               # Phase 7: Immutable snapshot creation/validation
-    └── token_tracker.py                  # Phase 5: AI token usage tracking
-frontend/                                 # React + TypeScript + Vite Web UI
+    ├── recommendation_service.py         # Recommendation pipeline orchestration
+    ├── profile_service.py                # Import, export, versioning
+    ├── profile_normalizer.py             # Resume text → MasterProfile
+    ├── profile_validator.py              # Validation + completeness scoring
+    ├── ai_orchestrator.py                # AI pipeline orchestrator
+    ├── explanation_service.py            # Match explanations
+    ├── resume_tailor_service.py          # Resume tailoring
+    ├── cover_letter_service.py           # Cover letter generation
+    ├── email_draft_service.py            # Email drafts
+    ├── prompt_service.py                 # Prompt template loading/rendering
+    ├── output_validator.py               # Deterministic AI output validation
+    ├── token_tracker.py                  # AI token usage tracking
+    ├── scheduler_service.py              # Recurring pipeline execution
+    └── job_source_repository.py
+frontend/                                 # React + TypeScript + Vite web UI
 ├── src/
 │   ├── api/client.ts                     # API client (fetch wrapper)
 │   ├── components/                       # Table, StatCard, Sidebar
@@ -441,17 +451,22 @@ frontend/                                 # React + TypeScript + Vite Web UI
 └── vite.config.ts
 ```
 
-## Future Docker Support
+## Engineering principles
 
-Version 1 runs directly on the local Windows development machine. Docker is intentionally not part of Phase 0. The application remains structured so Docker support can be added later without changing domain or application service code.
+- Clean Architecture and Domain-Driven Design boundaries.
+- Dependency injection and interfaces for external services (AI providers, parsers, job sources).
+- Type-safe Python with complete type hints, linted and formatted with Ruff.
+- Docstrings on public functions and classes.
+- Unit tests for every feature, and documentation updated with every phase.
+- No placeholder business logic: each phase ships complete and tested.
 
-## Engineering Rules
+## Roadmap
 
-- Follow Clean Architecture and Domain-Driven Design boundaries.
-- Use dependency injection and interfaces for external services.
-- Keep Python type-safe with complete type hints.
-- Use Ruff for linting and formatting.
-- Add docstrings for public functions and classes.
-- Add unit tests for every feature.
-- Update documentation in every phase.
-- Do not implement shortcuts or placeholder business logic.
+- Docker support. Version 1 runs directly on the local machine, and the application is structured so Docker can be added without changing domain or service code.
+- Additional job-source connectors (including HTML crawlers) through the connector registry.
+- Verified macOS/Linux setup.
+
+## License
+
+<!-- TODO: add a LICENSE file (for example MIT) and keep this line -->
+MIT
