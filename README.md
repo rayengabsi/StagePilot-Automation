@@ -4,9 +4,6 @@ AI-assisted, **human-in-the-loop** internship search and application platform.
 
 StagePilot discovers job offers, removes duplicates, filters and ranks them against your profile, and prepares tailored application documents. **Nothing is ever submitted without explicit human approval.**
 
-<!-- TODO: add screenshots (save them in docs/images/) and keep these lines -->
-![Dashboard](docs/images/dashboard.png)
-![Approval flow on Telegram](docs/images/telegram-approval.png)
 
 <!-- TODO: add the CI badge once you confirm the workflow file name, e.g.:
 [![CI](https://github.com/rayengabsi/StagePilot-Automation/actions/workflows/ci.yml/badge.svg)](https://github.com/rayengabsi/StagePilot-Automation/actions) -->
